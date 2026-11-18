@@ -5,11 +5,11 @@ import { useState } from "react";
 
 type Quote = {
   currency?: string;
-  production_cost?: number | string;
-  delivery_cost?: number | string;
+  production_cost?: number | string | null;
+  delivery_cost?: number | string | null;
   addon_cost?: number | string | null;
-  total_vat?: number | string;
-  total_incl_vat?: number | string;
+  total_vat?: number | string | null;
+  total_incl_vat?: number | string | null;
 };
 
 type Props = {
@@ -27,65 +27,107 @@ type Props = {
   productionUnlocked: boolean;
 };
 
-function format(value: unknown, currency: string) {
+type Action = "quote" | "submit" | "refresh" | "recover";
+
+type ApiResult = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  quote?: Quote;
+  providerOrderId?: string;
+  status?: string;
+  carrier?: string;
+  tracking_number?: string;
+  tracking_url?: string;
+};
+
+function money(value: unknown, currency: string): string {
+  if (value === null || value === undefined || value === "") {
+    return "Not available";
+  }
+
   const number = Number(value);
 
-  if (value == null || !Number.isFinite(number)) {
+  if (!Number.isFinite(number)) {
     return "Not available";
   }
 
   try {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
-      currency,
+      currency: currency || "GBP",
     }).format(number);
   } catch {
     return `${currency} ${number.toFixed(2)}`;
   }
 }
 
-async function parse(response: Response) {
-  const raw = await response.text();
+function Detail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="border border-black/10 p-4">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-black/40">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-lg">{value}</p>
+    </div>
+  );
+}
 
-  try {
-    return JSON.parse(raw) as Record<string, any>;
-  } catch {
-    throw new Error(
-      "Server returned an unexpected response. Check Vercel logs."
-    );
+function savedQuote(value: unknown): Quote | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    return value as Quote;
   }
+
+  return null;
 }
 
 export default function FulfilmentClient(props: Props) {
   const [quote, setQuote] = useState<Quote | null>(
-    props.initialQuote &&
-      typeof props.initialQuote === "object"
-      ? (props.initialQuote as Quote)
-      : null
+    savedQuote(props.initialQuote)
   );
 
-  const [status, setStatus] = useState(props.fulfilmentStatus);
+  const [fulfilment, setFulfilment] = useState(
+    props.fulfilmentStatus
+  );
+
   const [providerId, setProviderId] = useState(
     props.providerOrderId
   );
+
   const [providerStatus, setProviderStatus] = useState(
     props.providerStatus
   );
 
-  const [tracking, setTracking] = useState<{
-    carrier?: string;
-    tracking_number?: string;
-    tracking_url?: string;
-  } | null>(null);
-
   const [confirmation, setConfirmation] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState(props.lastError || "");
+  const [busy, setBusy] = useState<Action | null>(null);
+  const [error, setError] = useState(props.lastError ?? "");
   const [message, setMessage] = useState("");
 
-  async function run(
-    action: "quote" | "submit" | "refresh" | "recover"
-  ) {
+  const [tracking, setTracking] = useState<{
+    carrier?: string;
+    number?: string;
+    url?: string;
+  }>({});
+
+  const canSubmit =
+    props.productionUnlocked &&
+    props.status === "paid" &&
+    fulfilment === "not_submitted" &&
+    !providerId &&
+    quote !== null &&
+    confirmation === "PLACE PRINT ORDER";
+
+  async function run(action: Action) {
     if (busy) return;
 
     setBusy(action);
@@ -94,21 +136,30 @@ export default function FulfilmentClient(props: Props) {
 
     try {
       const response = await fetch(
-        `/api/studio/orders/${props.orderId}/creativehub`,
+        `/api/studio/orders/${encodeURIComponent(
+          props.orderId
+        )}/creativehub`,
         {
           method: "POST",
           credentials: "same-origin",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            action,
-            confirmation,
-          }),
+          body: JSON.stringify({ action, confirmation }),
         }
       );
 
-      const result = await parse(response);
+      const raw = await response.text();
+
+      let result: ApiResult;
+
+      try {
+        result = JSON.parse(raw) as ApiResult;
+      } catch {
+        throw new Error(
+          "Unexpected server response. Check Vercel function logs."
+        );
+      }
 
       if (!response.ok || result.success === false) {
         throw new Error(
@@ -119,95 +170,275 @@ export default function FulfilmentClient(props: Props) {
       }
 
       if (action === "quote") {
+        if (!result.quote) {
+          throw new Error("Creativehub returned no quote.");
+        }
+
         setQuote(result.quote);
         setMessage(
-          "Live Creativehub quote received. Nothing was sent to production."
+          "Live quote received. No production order was placed."
         );
-      }
+      } else if (
+        action === "submit" ||
+        action === "recover"
+      ) {
+        if (!result.providerOrderId) {
+          throw new Error("No Creativehub order ID returned.");
+        }
 
-      if (action === "submit" || action === "recover") {
-        setStatus("submitted");
-        setProviderId(result.providerOrderId || null);
+        setProviderId(result.providerOrderId);
+        setFulfilment("submitted");
+        setProviderStatus("submitted");
         setConfirmation("");
+
         setMessage(
           `Creativehub order linked: ${result.providerOrderId}`
         );
-      }
+      } else if (action === "refresh") {
+        setFulfilment(result.status || fulfilment);
+        setProviderStatus(result.status || providerStatus);
 
-      if (action === "refresh") {
-        setStatus(result.status);
-        setProviderStatus(result.status);
         setTracking({
           carrier: result.carrier,
-          tracking_number: result.tracking_number,
-          tracking_url: result.tracking_url,
+          number: result.tracking_number,
+          url: result.tracking_url,
         });
-        setMessage("Creativehub production status refreshed.");
+
+        setMessage("Creativehub order status refreshed.");
       }
-    } catch (err) {
+    } catch (caught) {
       setError(
-        err instanceof Error ? err.message : "Request failed."
+        caught instanceof Error
+          ? caught.message
+          : "Action failed."
       );
     } finally {
       setBusy(null);
     }
   }
 
-  const supplierCurrency = quote?.currency || "GBP";
-
-  const canSubmit =
-    props.productionUnlocked &&
-    props.status === "paid" &&
-    status === "not_submitted" &&
-    !providerId &&
-    confirmation === "PLACE PRINT ORDER" &&
-    !!quote;
-
   return (
-    <div className="mt-12 space-y-8">
-      <section className="grid gap-px bg-black/10 sm:grid-cols-3">
-        <Metric
+    <div className="mt-10 space-y-8">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Detail
           label="Payment"
           value={props.status.toUpperCase()}
         />
-        <Metric
+
+        <Detail
           label="Fulfilment"
-          value={status.replaceAll("_", " ").toUpperCase()}
+          value={fulfilment
+            .replaceAll("_", " ")
+            .toUpperCase()}
         />
-        <Metric
-          label="Customer paid"
-          value={format(props.total, props.currency)}
+
+        <Detail
+          label="Customer total"
+          value={money(props.total, props.currency)}
         />
+      </div>
+
+      <section className="border border-black/10 p-6 md:p-8">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-black/40">
+          CREATIVEHUB / THEPRINTSPACE
+        </p>
+
+        <h2 className="mt-3 text-2xl">
+          Live fulfilment quote
+        </h2>
+
+        <p className="mt-3 text-sm leading-6 text-black/55">
+          Uses the Creativehub variant IDs saved with this
+          order and the customer's delivery country.
+          Requesting a quote never sends an order
+          to production.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => run("quote")}
+          disabled={busy !== null}
+          className="mt-5 bg-black px-5 py-3 text-xs uppercase tracking-wider text-white disabled:opacity-40"
+        >
+          {busy === "quote"
+            ? "Calculating..."
+            : "Get live quote"}
+        </button>
+
+        {quote && (
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <Detail
+              label="Production"
+              value={money(
+                quote.production_cost,
+                quote.currency || "GBP"
+              )}
+            />
+
+            <Detail
+              label="Supplier delivery"
+              value={money(
+                quote.delivery_cost,
+                quote.currency || "GBP"
+              )}
+            />
+
+            <Detail
+              label="Supplier VAT"
+              value={money(
+                quote.total_vat,
+                quote.currency || "GBP"
+              )}
+            />
+
+            <Detail
+              label="Supplier total"
+              value={money(
+                quote.total_incl_vat,
+                quote.currency || "GBP"
+              )}
+            />
+          </div>
+        )}
+
+        <p className="mt-4 text-xs text-black/50">
+          Shipping charged to customer:{" "}
+          {money(props.shipping, props.currency)}.
+          Supplier and retail currencies can differ.
+        </p>
       </section>
 
       <section className="border border-black/10 p-6 md:p-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-black/40">
-              CREATIVEHUB / THEPRINTSPACE
+        <h2 className="text-2xl">Production approval</h2>
+
+        {providerId ? (
+          <div className="mt-5 space-y-3">
+            <p className="break-all text-sm">
+              Creativehub order: {providerId}
             </p>
-            <h2 className="mt-3 text-2xl">
-              Production quotation
-            </h2>
+
+            <p className="text-sm">
+              Supplier status: {providerStatus || fulfilment}
+            </p>
+
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => run("refresh")}
+              className="border border-black px-5 py-3 text-xs uppercase tracking-wider disabled:opacity-40"
+            >
+              {busy === "refresh"
+                ? "Refreshing..."
+                : "Refresh production status"}
+            </button>
           </div>
+        ) : fulfilment === "queued" ? (
+          <div className="mt-5 space-y-4">
+            <p className="text-sm text-amber-800">
+              This order is locked after a submission
+              attempt. Do not send a second production
+              order without checking whether Creativehub
+              accepted the first.
+            </p>
 
-          <button
-            type="button"
-            disabled={!!busy}
-            onClick={() => run("quote")}
-            className="bg-black px-5 py-3 text-[10px] uppercase tracking-[0.18em] text-white disabled:opacity-40"
-          >
-            {busy === "quote"
-              ? "Calculating..."
-              : "Get live quote"}
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => run("recover")}
+              className="border border-black px-5 py-3 text-xs uppercase tracking-wider disabled:opacity-40"
+            >
+              Find existing Creativehub order
+            </button>
+          </div>
+        ) : !props.productionUnlocked ? (
+          <p className="mt-4 text-sm leading-6 text-black/60">
+            Real production is locked while Stripe is
+            in test mode. You can still request a
+            safe supplier quote.
+          </p>
+        ) : (
+          <div className="mt-5 space-y-4">
+            <p className="text-sm text-black/60">
+              This submits a real print order and
+              charges your Creativehub account.
+            </p>
 
-        <p className="mt-4 text-sm leading-6 text-black/50">
-          Quotes use the exact Creativehub variant IDs saved on
-          this order, with its original delivery country.
-          Quotes do not charge your account.
+            <label
+              htmlFor="production-confirm"
+              className="block text-xs uppercase tracking-wider"
+            >
+              Type PLACE PRINT ORDER to confirm
+            </label>
+
+            <input
+              id="production-confirm"
+              type="text"
+              value={confirmation}
+              onChange={(event) =>
+                setConfirmation(event.target.value)
+              }
+              placeholder="PLACE PRINT ORDER"
+              className="w-full border border-black/20 px-4 py-3 text-sm"
+            />
+
+            <button
+              type="button"
+              disabled={!canSubmit || busy !== null}
+              onClick={() => run("submit")}
+              className="bg-black px-5 py-4 text-xs uppercase tracking-wider text-white disabled:opacity-35"
+            >
+              {busy === "submit"
+                ? "Submitting..."
+                : "Submit approved production order"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {(tracking.carrier ||
+        tracking.number ||
+        tracking.url) && (
+        <section className="border border-black/10 p-6 md:p-8">
+          <h2 className="text-2xl">
+            Shipment tracking
+          </h2>
+
+          {tracking.carrier && (
+            <p className="mt-3 text-sm">
+              Carrier: {tracking.carrier}
+            </p>
+          )}
+
+          {tracking.number && (
+            <p className="mt-2 text-sm">
+              Tracking: {tracking.number}
+            </p>
+          )}
+
+          {tracking.url && (
+            <a
+              href={tracking.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-block text-sm underline"
+            >
+              View carrier tracking
+            </a>
+          )}
+        </section>
+      )}
+
+      {message && (
+        <p role="status" className="text-sm text-green-700">
+          {message}
         </p>
+      )}
 
-        {quote && (
-          <div className="mt-7 grid gap-4 sm:grid-cols
+      {error && (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
