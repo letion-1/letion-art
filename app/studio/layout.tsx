@@ -1,3 +1,5 @@
+
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -6,10 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 export default async function StudioLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
-  const supabase =
-    await createClient();
+  const supabase = await createClient();
 
   const {
     data: { user },
@@ -19,12 +20,11 @@ export default async function StudioLayout({
     redirect("/studio/login");
   }
 
-  const { data: admin } =
-    await supabase
-      .from("studio_admins")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+  const { data: admin } = await supabase
+    .from("studio_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
   if (!admin) {
     redirect("/studio/login?error=unauthorized");
@@ -33,7 +33,7 @@ export default async function StudioLayout({
   return (
     <div className="min-h-screen bg-[#f3f0e9] text-[#111111]">
       <header className="border-b border-black/10 px-6 py-5 md:px-10">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-5">
           <Link
             href="/studio"
             className="text-sm font-semibold tracking-[0.25em]"
@@ -41,7 +41,10 @@ export default async function StudioLayout({
             LETION / STUDIO
           </Link>
 
-          <div className="flex items-center gap-6 text-xs uppercase tracking-[0.18em]">
+          <nav
+            aria-label="Studio navigation"
+            className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs uppercase tracking-[0.18em]"
+          >
             <Link
               href="/studio/artworks"
               className="text-black/50 transition hover:text-black"
@@ -57,12 +60,19 @@ export default async function StudioLayout({
             </Link>
 
             <Link
+              href="/studio/orders"
+              className="text-black/50 transition hover:text-black"
+            >
+              Orders
+            </Link>
+
+            <Link
               href="/"
               className="text-black/50 transition hover:text-black"
             >
               View site
             </Link>
-          </div>
+          </nav>
         </div>
       </header>
 
