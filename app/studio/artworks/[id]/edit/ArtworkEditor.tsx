@@ -1460,6 +1460,14 @@ export default function ArtworkEditor({
               <div>
                 <h3 className="text-xl font-medium">
                   Sellable print variants
+
+<a
+  href={`/studio/artworks/${artwork.id}/creativehub`}
+  className="mb-6 inline-flex border border-black bg-black px-5 py-3 text-xs uppercase tracking-[0.16em] text-white transition hover:bg-transparent hover:text-black"
+>
+  Connect to Creativehub ↗
+</a>
+
                 </h3>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-black/45">
                   Each row represents
