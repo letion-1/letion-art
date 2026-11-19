@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
+/* LETION ART intentionally uses an editorial light gallery theme.
+   Device dark mode must not silently invert the canvas. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f3f0e9;
+  --foreground: #111111;
+  color-scheme: only light;
 }
 
 @theme inline {
@@ -12,22 +15,23 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: only light;
+  scroll-behavior: smooth;
+  background: #f3f0e9;
+  overflow-x: clip;
 }
 
 body {
+  margin: 0;
+  min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  overflow-x: clip;
 }
-/* ========================================
-   HOMEPAGE ARTWORK MARQUEE
-======================================== */
 
+/* Homepage artwork marquee */
 .marquee-track {
   display: flex;
   width: max-content;
@@ -47,18 +51,14 @@ body {
   flex: 0 0 auto;
 }
 
-.marquee-track:hover {
+.marquee-track:hover,
+.marquee-track:focus-within {
   animation-play-state: paused;
 }
 
 @keyframes artwork-marquee {
-  from {
-    transform: translateX(0);
-  }
-
-  to {
-    transform: translateX(-50%);
-  }
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
 }
 
 @media (min-width: 768px) {
@@ -70,7 +70,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+  }
+
   .marquee-track {
     animation: none;
+    will-change: auto;
   }
 }
