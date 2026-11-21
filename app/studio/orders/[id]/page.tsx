@@ -132,6 +132,25 @@ export default async function StudioOrderDetailPage({ params }: Props) {
           </div>
         </section>
 
+        {order.status === "paid" &&
+          order.fulfilment_status === "not_submitted" &&
+          !order.creativehub_order_id && (
+            <div className="mt-8 border border-amber-800/25 bg-amber-50/50 p-6">
+              <p className="text-xs font-medium uppercase tracking-[0.18em]">
+                Paid order · awaiting your approval
+              </p>
+              <p className="mt-3 text-sm leading-6 text-black/60">
+                This is a draft in LETION ART Studio. Customer details and print specifications have been saved. No Creativehub production order has been placed or charged yet.
+              </p>
+              <Link
+                href={`/studio/orders/${encodeURIComponent(order.id)}/fulfilment`}
+                className="mt-4 inline-block bg-black px-5 py-3 text-xs uppercase tracking-wider text-white"
+              >
+                Review supplier quote and approve production
+              </Link>
+            </div>
+          )}
+
         <section className="grid gap-8 pt-8 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="min-w-0 space-y-8">
             <Panel
@@ -475,6 +494,7 @@ function AddressBlock({ address }: { address: Address }) {
     [postcode, text("city")].filter(Boolean).join(" "),
     text("state"),
     text("country"),
+    text("phone") ? `Phone: ${text("phone")}` : "",
   ].filter(Boolean);
 
   return lines.length ? (

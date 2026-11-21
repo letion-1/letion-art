@@ -182,6 +182,15 @@ export default async function StudioOrdersPage() {
         "paid"
     );
 
+  // A paid, not-yet-submitted order is our safe local Creativehub draft.
+  // The Escher API has no documented create-draft-order endpoint.
+  const awaitingApprovalOrders = paidOrders.filter(
+    (order) => !order.fulfilment_status || order.fulfilment_status === "not_submitted"
+  );
+  const otherPaidOrders = paidOrders.filter(
+    (order) => order.fulfilment_status && order.fulfilment_status !== "not_submitted"
+  );
+
   const pendingOrders =
     orders.filter(
       (
@@ -299,8 +308,40 @@ export default async function StudioOrdersPage() {
           />
         </section>
 
-        {/* PAID */}
+        {/* APPROVAL QUEUE: paid orders stay local until manual approval. */}
+        <section className="pt-10">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.22em] text-black/30">
+                Creativehub-ready drafts
+              </p>
+              <h2 className="mt-2 text-2xl font-medium tracking-[-0.035em]">
+                Awaiting your approval
+              </h2>
+              <p className="mt-2 max-w-xl text-xs leading-5 text-black/45">
+                Paid customer orders are saved here automatically. They are not sent to Creativehub until you review and approve production.
+              </p>
+            </div>
+            <p className="text-xs text-black/35">{awaitingApprovalOrders.length} pending</p>
+          </div>
+          <div className="grid gap-3">
+            {awaitingApprovalOrders.length === 0 ? (
+              <p className="border border-black/10 px-5 py-8 text-sm text-black/40">
+                No paid orders waiting for approval.
+              </p>
+            ) : (
+              awaitingApprovalOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  items={itemsByOrder.get(order.id) ?? []}
+                />
+              ))
+            )}
+          </div>
+        </section>
 
+        {/* PAID, ALREADY SUBMITTED OR UNDER REVIEW */}
         <section className="pt-10">
           <div className="mb-5 flex items-end justify-between gap-4">
             <div>
@@ -309,16 +350,16 @@ export default async function StudioOrdersPage() {
               </p>
 
               <h2 className="mt-2 text-2xl font-medium tracking-[-0.035em]">
-                Paid orders
+                Other paid orders
               </h2>
             </div>
 
             <p className="text-xs text-black/35">
               {
-                paidOrders.length
+                otherPaidOrders.length
               }{" "}
               order
-              {paidOrders.length ===
+              {otherPaidOrders.length ===
               1
                 ? ""
                 : "s"}
@@ -326,7 +367,7 @@ export default async function StudioOrdersPage() {
           </div>
 
           <div className="grid gap-3">
-            {paidOrders.map(
+            {otherPaidOrders.map(
               (
                 order
               ) => (

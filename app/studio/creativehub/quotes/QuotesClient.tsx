@@ -13,6 +13,7 @@ type VariantOption = {
   price: number | null;
   currency: string;
   sku: string | null;
+  active: boolean;
 };
 
 type QuoteResult = {
@@ -119,7 +120,7 @@ export default function QuotesClient({
 
     try {
       const response = await fetch(
-        "/api/studio/creativehub/quote",
+        "/api/studio/creativehub/quotes",
         {
           method: "POST",
           headers: {
@@ -195,6 +196,7 @@ export default function QuotesClient({
               {variants.map((variant) => (
                 <option key={variant.id} value={variant.id}>
                   {variant.artworkTitle} / {variant.name}
+                  {!variant.active ? " / DRAFT" : ""}
                   {variant.sizeLabel
                     ? ` / ${variant.sizeLabel}`
                     : ""}
@@ -225,6 +227,11 @@ export default function QuotesClient({
               <p className="mt-3 break-all font-mono text-[11px] text-black/40">
                 SKU: {selected.sku ?? "Not assigned"}
               </p>
+              {!selected.active && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Draft variant. You can request a quote before enabling sales.
+                </p>
+              )}
 
               <p className="mt-3 text-sm">
                 Website retail:{" "}

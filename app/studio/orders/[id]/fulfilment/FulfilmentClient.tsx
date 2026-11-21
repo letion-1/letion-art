@@ -309,7 +309,12 @@ export default function FulfilmentClient(props: Props) {
       </section>
 
       <section className="border border-black/10 p-6 md:p-8">
-        <h2 className="text-2xl">Production approval</h2>
+        <h2 className="text-2xl">Review draft and approve production</h2>
+        <p className="mt-3 text-sm leading-6 text-black/55">
+          Paid orders are held as drafts in LETION ART Studio, not in Creativehub.
+          No production or supplier charge happens until you approve below.
+          Verify the customer address and exact print options on the order details page first.
+        </p>
 
         {providerId ? (
           <div className="mt-5 space-y-3">

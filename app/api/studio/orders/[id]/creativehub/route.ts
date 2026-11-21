@@ -12,6 +12,7 @@ type Context = { params: Promise<{ id: string }> };
 
 type Address = {
   name?: string;
+  phone?: string;
   line1?: string;
   line2?: string;
   city?: string;
@@ -596,6 +597,9 @@ export async function POST(request: Request, context: Context) {
           str(address.country).toUpperCase(),
         ...(str(order.customer_email)
           ? { delivery_email: str(order.customer_email) }
+          : {}),
+        ...(str(address.phone)
+          ? { delivery_phone: str(address.phone) }
           : {}),
         external_reference: reference,
       });

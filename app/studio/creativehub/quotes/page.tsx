@@ -17,6 +17,7 @@ type VariantRow = {
   frame_style: string | null;
   price: number | null;
   currency: string;
+  active: boolean;
   creativehub_sku: string | null;
 };
 
@@ -41,11 +42,11 @@ export default async function CreativehubQuotesPage() {
           frame_style,
           price,
           currency,
+          active,
           creativehub_sku
         `)
         .not("creativehub_variant_id", "is", null)
         .not("creativehub_product_id", "is", null)
-        .eq("active", true)
         .order("sort_order", { ascending: true }),
     ]);
 
@@ -93,6 +94,7 @@ export default async function CreativehubQuotesPage() {
           : Number(variant.price),
 
       currency: variant.currency,
+      active: variant.active,
       sku: variant.creativehub_sku,
     }))
     .sort(
@@ -130,8 +132,11 @@ export default async function CreativehubQuotesPage() {
           </p>
 
           <p className="mt-3 text-xs text-black/35">
-            {options.length} mapped, active print
+            {options.length} mapped print
             {options.length === 1 ? " variant" : " variants"}
+          </p>
+          <p className="mt-2 text-xs text-black/45">
+            Draft variants can be quoted before you enable them for sale.
           </p>
         </section>
 

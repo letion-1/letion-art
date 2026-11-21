@@ -150,6 +150,9 @@ export async function POST(request: Request) {
           id,
           artwork_id,
           name,
+          paper,
+          framed,
+          frame_style,
           size_label,
           width_mm,
           height_mm,
@@ -173,15 +176,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!variant.active) {
-      return NextResponse.json(
-        {
-          quoteSuccessful: false,
-          error: "This print variant is disabled.",
-        },
-        { status: 400 }
-      );
-    }
+    // Admin-only quote previews must work for draft variants.
+    // Catalog sync deliberately leaves mapped variants inactive until reviewed.
 
     if (!variant.creativehub_variant_id) {
       return NextResponse.json(
@@ -336,6 +332,11 @@ export async function POST(request: Request) {
 
         name:
           variant.name,
+
+        paper: variant.paper,
+        framed: variant.framed,
+        frameStyle: variant.frame_style,
+        active: variant.active,
 
         size:
           variant.size_label,

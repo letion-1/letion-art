@@ -20,6 +20,7 @@ type CheckoutRequestItem = {
 
 type ShippingAddressInput = {
   name?: unknown;
+  phone?: unknown;
   line1?: unknown;
   line2?: unknown;
   city?: unknown;
@@ -313,6 +314,9 @@ export async function POST(
           body.shippingAddress
             ?.name
         ),
+
+      phone:
+        cleanString(body.shippingAddress?.phone).slice(0, 40),
 
       line1:
         cleanString(
@@ -944,6 +948,9 @@ export async function POST(
           shipping_address: {
             name:
               shippingAddress.name,
+
+            phone:
+              shippingAddress.phone || null,
 
             line1:
               shippingAddress.line1,

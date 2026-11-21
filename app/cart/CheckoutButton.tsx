@@ -11,6 +11,7 @@ import {
 
 type ShippingAddress = {
   name: string;
+  phone: string;
   line1: string;
   line2: string;
   city: string;
@@ -232,6 +233,9 @@ export default function CheckoutButton() {
   ] =
     useState<ShippingAddress>({
       name:
+        "",
+
+      phone:
         "",
 
       line1:
@@ -572,6 +576,13 @@ export default function CheckoutButton() {
 
           placeholder=
             "Full name"
+        />
+
+        <Field
+          label="Phone number (optional)"
+          value={address.phone}
+          onChange={(value) => updateAddress("phone", value)}
+          placeholder="+49 ..."
         />
 
         <div>
