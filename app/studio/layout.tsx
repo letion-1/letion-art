@@ -60,6 +60,13 @@ export default async function StudioLayout({
             </Link>
 
             <Link
+              href="/studio/prints"
+              className="text-black/50 transition hover:text-black"
+            >
+              Manage prints
+            </Link>
+
+            <Link
               href="/studio/orders"
               className="text-black/50 transition hover:text-black"
             >

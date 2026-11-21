@@ -230,6 +230,13 @@ export default async function StudioPage() {
                 </Link>
 
                 <Link
+                  href="/studio/prints"
+                  className="border border-black/20 px-6 py-4 text-xs uppercase tracking-[0.16em] transition hover:border-black"
+                >
+                  Manage prints
+                </Link>
+
+                <Link
                   href="/studio/creativehub/quotes"
                   className="border border-black/20 px-6 py-4 text-xs uppercase tracking-[0.16em] transition hover:border-black"
                 >
@@ -240,7 +247,7 @@ export default async function StudioPage() {
           </div>
         </div>
 
-        <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Link
             href="/studio/artworks/new"
             className="border border-black bg-black px-7 py-6 text-sm uppercase tracking-[0.18em] text-white transition hover:bg-transparent hover:text-black"
@@ -260,6 +267,13 @@ export default async function StudioPage() {
             className="border border-black/15 px-7 py-6 text-sm uppercase tracking-[0.18em] transition hover:border-black"
           >
             Manage collections
+          </Link>
+
+          <Link
+            href="/studio/prints"
+            className="border border-black/15 px-7 py-6 text-sm uppercase tracking-[0.18em] transition hover:border-black"
+          >
+            Manage prints
           </Link>
 
           <Link
