@@ -245,6 +245,10 @@ export default function NewArtworkForm({
       "Creating artwork..."
     );
 
+    // A stable identifier lets us verify whether a failed insert actually saved.
+    const sourceKey = `studio/${crypto.randomUUID()}`;
+    let uploadedPaths: string[] = [];
+
     try {
       const supabase =
         createClient();
@@ -277,22 +281,23 @@ export default function NewArtworkForm({
       /*
        * 1. Upload artwork image
        */
-      let __letionNewArtworkPreviewPath: string | null = null;
       const {
         error: uploadError,
+        previewPath,
       } = await uploadNewArtworkWithPreview(supabase, storagePath, file, {
-            cacheControl:
-              "3600",
-
-            upsert: false,
-
-            contentType:
-              file.type,
-          }).then((result) => { __letionNewArtworkPreviewPath = result.previewPath; return result; });
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
 
       if (uploadError) {
         throw uploadError;
       }
+      if (!previewPath) {
+        throw new Error("The optimized preview was not created. Artwork creation stopped.");
+      }
+      // The next database operations may fail. Track only freshly uploaded paths.
+      uploadedPaths = [storagePath, previewPath];
 
       /*
        * 2. Get public image URL
@@ -301,9 +306,7 @@ export default function NewArtworkForm({
         data: publicUrlData,
       } = supabase.storage
         .from("artworks")
-        .getPublicUrl(
-          (__letionNewArtworkPreviewPath ?? storagePath)
-        );
+        .getPublicUrl(previewPath);
 
       /*
        * 3. Find next position
@@ -347,7 +350,7 @@ export default function NewArtworkForm({
           slug,
 
           source_key:
-            `studio/${crypto.randomUUID()}`,
+            sourceKey,
 
           collection_id:
             collectionId,
@@ -411,19 +414,12 @@ export default function NewArtworkForm({
         .select("id")
         .single();
 
-      if (insertError) {
-        /*
-         * Database creation failed after upload.
-         * Remove the orphaned image.
-         */
-        await supabase.storage
-          .from("artworks")
-          .remove([
-            storagePath,
-          ]);
-
-        throw insertError;
+      if (insertError || !artwork) {
+        throw insertError ?? new Error("Could not confirm artwork creation.");
       }
+
+      // The artwork row now refers to both files. Never remove them in catch.
+      uploadedPaths = [];
 
       setMessage(
         "Artwork created."
@@ -436,11 +432,41 @@ export default function NewArtworkForm({
       router.refresh();
     } catch (error) {
       console.error(error);
+      let recoveryNote = "";
+
+      if (uploadedPaths.length) {
+        try {
+          const cleanupClient = createClient();
+          // An insert can commit even if its response is lost. Check first.
+          const { data: existing, error: lookupError } = await cleanupClient
+            .from("artworks")
+            .select("id")
+            .eq("source_key", sourceKey)
+            .limit(1)
+            .maybeSingle();
+
+          if (lookupError) {
+            console.warn("Could not verify upload before cleanup:", lookupError);
+            recoveryNote = " Uploaded files were preserved because the database state could not be verified.";
+          } else if (existing) {
+            recoveryNote = " This artwork may already exist in Studio; check the catalogue before retrying.";
+          } else {
+            const { error: cleanupError } = await cleanupClient.storage
+              .from("artworks")
+              .remove(uploadedPaths);
+            if (cleanupError) {
+              console.warn("Could not clean up failed artwork upload:", cleanupError);
+              recoveryNote = " The database save failed, and some uploaded files may require manual storage cleanup.";
+            }
+          }
+        } catch (cleanupError) {
+          console.warn("Could not finish upload recovery:", cleanupError);
+          recoveryNote = " Uploaded files were left untouched because cleanup could not be verified.";
+        }
+      }
 
       setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not create artwork."
+        (error instanceof Error ? error.message : "Could not create artwork.") + recoveryNote
       );
     } finally {
       setSaving(false);

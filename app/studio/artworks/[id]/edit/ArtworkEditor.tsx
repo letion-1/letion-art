@@ -140,12 +140,6 @@ export default function ArtworkEditor({
     artwork.image_url
   );
   const [
-    currentImagePath,
-    setCurrentImagePath,
-  ] = useState<string | null>(
-    artwork.image_path
-  );
-  const [
     replacementImage,
     setReplacementImage,
   ] = useState<File | null>(
@@ -458,7 +452,6 @@ export default function ArtworkEditor({
         .single();
       if (updateError || !updatedRow) throw updateError || new Error("Could not update artwork record.");
       databaseUpdated = true;
-      setCurrentImagePath(originalPath);
       setCurrentImageUrl(nextUrl);
       if (replacementPreview) URL.revokeObjectURL(replacementPreview);
       setReplacementImage(null);
@@ -817,7 +810,7 @@ export default function ArtworkEditor({
   async function deleteArtwork() {
     const first =
       window.confirm(
-        `Delete "${artwork.title}"?\n\nThis will permanently remove the artwork and its print options.`
+        `Delete "${artwork.title}"?\n\nThis removes the catalogue entry and print options. Full-resolution originals are preserved.`
       );
     if (!first) {
       return;
@@ -880,30 +873,36 @@ export default function ArtworkEditor({
         throw artworkError;
       }
       /*
-       * Storage cleanup only
-       * after database deletion.
+       * Remove only an unshared managed WebP preview, AFTER the database
+       * row has been deleted. Never remove original images or print masters.
+       * If ownership or references cannot be checked, keep the preview.
        */
-      if (
-        currentImagePath
-      ) {
-        const {
-          error:
-            storageError,
-        } =
-          await supabase.storage
-            .from(
-              "artworks"
-            )
-            .remove([
-              currentImagePath,
-            ]);
-        if (
-          storageError
-        ) {
-          console.warn(
-            "Artwork deleted but image cleanup failed:",
-            storageError
-          );
+      const { data: previewPrefix } = supabase.storage
+        .from("artworks")
+        .getPublicUrl("web-previews/");
+      const previewPath = getManagedArtworkPreviewPath(
+        currentImageUrl,
+        previewPrefix.publicUrl
+      );
+      if (previewPath && currentImageUrl) {
+        try {
+          const { data: references, error: referenceError } = await supabase
+            .from("artworks")
+            .select("id")
+            .eq("image_url", currentImageUrl)
+            .limit(1);
+          if (referenceError) {
+            console.warn("Preview reference check failed. Preview kept:", referenceError);
+          } else if (!references?.length) {
+            const { error: cleanupError } = await supabase.storage
+              .from("artworks")
+              .remove([previewPath]);
+            if (cleanupError) {
+              console.warn("Artwork deleted; preview cleanup failed:", cleanupError);
+            }
+          }
+        } catch (cleanupError) {
+          console.warn("Artwork deleted; preview left untouched:", cleanupError);
         }
       }
       router.push(
@@ -1505,9 +1504,9 @@ export default function ArtworkEditor({
           </h2>
           <p className="mt-4 max-w-sm text-sm leading-6 text-black/45">
             Permanently remove
-            this artwork, its
-            print options and
-            uploaded image.
+            this artwork and its
+            print options. Original
+            image files stay preserved.
           </p>
         </div>
         <div className="flex flex-col items-start justify-between gap-6 border border-red-900/15 p-6 sm:flex-row sm:items-center">
@@ -1517,9 +1516,9 @@ export default function ArtworkEditor({
             </p>
             <p className="mt-2 max-w-md text-xs leading-5 text-black/40">
               The artwork will
-              immediately disappear
-              from Studio and the
-              public website.
+              disappear from Studio
+              and the public website.
+              Full-resolution files remain stored.
             </p>
           </div>
           <button
@@ -2594,5 +2593,38 @@ function formatMoney(
     return `${currency} ${amount.toFixed(
       2
     )}`;
+  }
+}
+
+/**
+ * Only recognize public WebP preview URLs inside this project's artworks
+ * bucket. Reject other domains, query strings, traversal, and non-WebP files.
+ */
+function getManagedArtworkPreviewPath(
+  imageUrl: string | null,
+  previewPrefixUrl: string
+): string | null {
+  if (!imageUrl) return null;
+  try {
+    const candidate = new URL(imageUrl);
+    const prefix = new URL(previewPrefixUrl);
+    if (
+      candidate.origin !== prefix.origin ||
+      !candidate.pathname.startsWith(prefix.pathname) ||
+      candidate.search ||
+      candidate.hash
+    ) return null;
+
+    const relative = decodeURIComponent(candidate.pathname.slice(prefix.pathname.length));
+    const segments = relative.split("/");
+    if (
+      !relative ||
+      !/^[a-zA-Z0-9._/-]+\.webp$/i.test(relative) ||
+      segments.some((segment) => !segment || segment === "." || segment === "..")
+    ) return null;
+
+    return `web-previews/${relative}`;
+  } catch {
+    return null;
   }
 }
