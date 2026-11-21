@@ -64,8 +64,19 @@ async function provider(path: string, method = "GET", payload?: Record<string, u
   try { result = raw ? JSON.parse(raw) : {}; }
   catch { throw new RequestError("Creativehub returned invalid JSON.", 502); }
   if (!response.ok) {
+    // Creativehub often returns structured details (e.g. {detail:{code:"min_resolution"}}).
+    // Do not expose signed master URLs or bearer tokens in the Studio UI.
+    const detail = result.detail;
+    const code = text(result.code) || (detail && typeof detail === "object" ? text((detail as Row).code) : "");
+    const reason = typeof detail === "string" ? detail
+      : detail && typeof detail === "object" ? text((detail as Row).message) || text((detail as Row).reason) : "";
+    const safeReason = (reason || text(result.message)).replace(/https?:\/\/\S+/gi, "[URL omitted]").slice(0, 240);
+    const at = `${method} ${path.split("?")[0]}`;
+    const explanation = response.status === 413
+      ? "Creativehub rejected the print master or request size (413). Check source pixel dimensions: artwork must be at least 2 MP and within Creativehub limits. Do not retry product creation until reviewed."
+      : `Creativehub request failed (${response.status}).`;
     throw new RequestError(
-      text(result.detail) || text(result.message) || `Creativehub HTTP ${response.status}`,
+      `${explanation} Step: ${at}.${code ? ` Code: ${code}.` : ""}${safeReason ? ` ${safeReason}` : ""}`,
       response.status >= 400 && response.status < 500 ? response.status : 502
     );
   }
@@ -109,7 +120,10 @@ function selectVariants(all: ContextVariant[], ids: unknown): ContextVariant[] {
   if (new Set(keys).size !== keys.length) {
     throw new RequestError("Two selected variants have the same size/frame identity.");
   }
-  rows.forEach((v) => paperSlug(v.paper));
+  rows.forEach((v) => {
+    try { paperSlug(v.paper); }
+    catch { throw new RequestError(`Print option "${v.name}" needs a supported saved paper. Currently saved: ${v.paper || "NONE"}. Open Edit Artwork, set the Paper field, click Save variant, then reload this page.`); }
+  });
   return rows;
 }
 

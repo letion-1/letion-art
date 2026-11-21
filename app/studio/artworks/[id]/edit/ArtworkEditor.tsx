@@ -3,6 +3,7 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -88,7 +89,7 @@ export default function ArtworkEditor({
       collection_id:
         artwork.collection_id ?? "",
       year:
-        artwork.year ?? "",
+        String(artwork.year ?? ""),
       medium:
         artwork.medium ?? "",
       description:
@@ -272,7 +273,7 @@ export default function ArtworkEditor({
             form.collection_id ||
             null,
           year:
-            form.year.trim() ||
+            String(form.year ?? "").trim() ||
             null,
           medium:
             form.medium.trim() ||
@@ -620,7 +621,7 @@ export default function ArtworkEditor({
       setMessage(
         "Print option name is required."
       );
-      return;
+      return false;
     }
     if (
       variant.price !==
@@ -635,7 +636,7 @@ export default function ArtworkEditor({
       setMessage(
         "Retail price is invalid."
       );
-      return;
+      return false;
     }
     if (
       variant.estimated_fulfilment_cost !==
@@ -651,7 +652,7 @@ export default function ArtworkEditor({
       setMessage(
         "Fulfilment cost is invalid."
       );
-      return;
+      return false;
     }
     const supabase =
       createClient();
@@ -724,12 +725,13 @@ export default function ArtworkEditor({
       setMessage(
         error.message
       );
-      return;
+      return false;
     }
     setMessage(
       `Saved ${variant.name}.`
     );
     router.refresh();
+    return true;
   }
   async function deleteVariant(
     id: string
@@ -1590,11 +1592,23 @@ function PrintVariantEditor({
   onSave: (
     variant:
       PrintVariant
-  ) => void;
+  ) => Promise<boolean>;
   onDelete: (
     id: string
   ) => void;
 }) {
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  useEffect(() => { setSaveStatus("idle"); }, [variant]);
+  async function saveThisVariant() {
+    setSaveStatus("saving");
+    try {
+      const saved = await onSave(variant);
+      setSaveStatus(saved ? "saved" : "error");
+    } catch (error) {
+      console.error("Print variant save failed:", error);
+      setSaveStatus("error");
+    }
+  }
   return (
     <div
       className={`border p-6 ${
@@ -1966,17 +1980,19 @@ function PrintVariantEditor({
         >
           Delete
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSave(
-              variant
-            )
-          }
-          className="bg-black px-5 py-3 text-[10px] uppercase tracking-[0.18em] text-white transition hover:opacity-70"
-        >
-          Save variant
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="status" aria-live="polite" className={`text-xs ${saveStatus === "error" ? "text-red-700" : saveStatus === "saved" ? "text-green-800" : "text-black/50"}`}>
+            {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved to Studio" : saveStatus === "error" ? "Save failed. See the message in the bottom bar." : ""}
+          </span>
+          <button
+            type="button"
+            disabled={saveStatus === "saving"}
+            onClick={saveThisVariant}
+            className="bg-black px-5 py-3 text-[10px] uppercase tracking-[0.18em] text-white transition hover:opacity-70 disabled:opacity-40"
+          >
+            {saveStatus === "saving" ? "Saving..." : "Save variant"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2011,6 +2027,7 @@ function CreativehubPricingCalculator({
   const [quote, setQuote] = useState<FulfilmentQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const previousRetailPrice = useRef(variant.price);
 
   async function requestQuote() {
     if (!variant.creativehub_variant_id || !variant.creativehub_product_id) {
@@ -2062,6 +2079,19 @@ function CreativehubPricingCalculator({
     }
   }
 
+  // Supplier cost depends on supplier variant, destination, and quantity,
+  // not on the artist's retail price. Requote after a retail-price edit
+  // only for an already mapped variant. No requests on initial page load.
+  useEffect(() => {
+    const changed = previousRetailPrice.current !== variant.price;
+    previousRetailPrice.current = variant.price;
+    if (!changed || variant.price === null || !variant.creativehub_variant_id || !variant.creativehub_product_id) return;
+    const timer = window.setTimeout(() => { void requestQuote(); }, 900);
+    return () => window.clearTimeout(timer);
+    // requestQuote intentionally uses the latest render and only triggers after a retail edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant.price, variant.creativehub_variant_id, variant.creativehub_product_id]);
+
   const quotedCurrency = quote?.creativehub.currency ?? null;
   const sameCurrency = quotedCurrency?.toUpperCase() === variant.currency.toUpperCase();
   const exchangeRate = sameCurrency ? 1 : Number(conversion);
@@ -2081,9 +2111,14 @@ function CreativehubPricingCalculator({
     <div className="mt-8 border-t border-black/10 pt-6">
       <p className="text-[9px] uppercase tracking-[0.22em] text-black/35">Pricing & profit calculator</p>
       <p className="mt-2 text-xs leading-6 text-black/45">
-        Fetch a live quotation for this mapped variant. Estimates use the full supplier quote,
-        including its VAT. Nothing is sent to production.
+        Supplier costs are based on the Creativehub variant, dimensions, paper, frame, destination and quantity, not your retail price.
+        Editing the retail price automatically refreshes the quotation for a linked variant. No order is placed.
       </p>
+      {!variant.creativehub_variant_id && (
+        <p role="note" className="mt-3 text-xs text-amber-900">
+          Actual fulfilment costs cannot be calculated until this print option is linked to Creativehub. No guessed production price is shown.
+        </p>
+      )}
       <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <Label>Delivery country</Label>

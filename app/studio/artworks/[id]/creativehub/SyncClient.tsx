@@ -120,20 +120,28 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
 
       <section className="border border-black/10 p-6">
         <h2 className="text-xl">1. Choose the print variants</h2>
-        <p className="mt-2 text-sm text-black/50">Create your Small, Medium, Large or Statement options in the Artwork Editor first. Already mapped options are shown but cannot be mapped twice.</p>
+        <p className="mt-2 text-sm text-black/50">Create your print options in the Artwork Editor, then click Save variant for each one. The paper displayed below comes from the database, not unsaved editor fields. Unlinked options without a supported saved paper cannot be selected.</p>
         <div className="mt-5 space-y-3">
           {(data?.variants || []).map((v) => {
             const mapped = Boolean(v.creativehub_variant_id);
+            const selectedNow = selectedIds.includes(v.id);
+            const supportedPaper = /etching|photo\s*rag|bamboo|baryta|pearl/i.test(v.paper || "");
             return (
-              <label key={v.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 pb-3 text-sm">
-                <span className="flex items-center gap-3">
-                  <input type="checkbox" disabled={mapped || !!busy}
-                    checked={selectedIds.includes(v.id)}
+              <label key={v.id} className={`flex cursor-pointer flex-wrap items-center justify-between gap-3 border px-4 py-4 text-sm transition-colors focus-within:ring-2 focus-within:ring-black/30 ${selectedNow ? "border-black bg-[#e8dfc8] ring-1 ring-black/30" : "border-black/10 bg-transparent hover:bg-black/[0.025]"} ${mapped ? "opacity-60" : ""}`}>
+                <span className="flex items-start gap-3">
+                  <input type="checkbox" disabled={mapped || !!busy || !supportedPaper}
+                    className="mt-1 h-4 w-4 accent-black"
+                    checked={selectedNow}
                     onChange={(e) => setSelectedIds((old) => e.target.checked ? [...old, v.id] : old.filter((x) => x !== v.id))} />
-                  <span>{v.name} · {v.width_mm && v.height_mm ? `${v.width_mm / 10} × ${v.height_mm / 10} cm` : "Size missing"}
-                    {v.framed ? ` · ${v.frame_style || "Framed"}` : " · Print only"}</span>
+                  <span className="space-y-1">
+                    <span className="block font-medium">{v.name} · {v.width_mm && v.height_mm ? `${v.width_mm / 10} × ${v.height_mm / 10} cm` : "Size missing"}
+                      {v.framed ? ` · ${v.frame_style || "Framed"}` : " · Print only"}</span>
+                    <span className={`block text-xs ${supportedPaper ? "text-black/55" : "text-red-700"}`}>
+                      {supportedPaper ? `Saved paper: ${v.paper}` : `Saved paper: ${v.paper || "NONE"}. Set a supported paper in Edit Artwork, click Save variant, then return here.`}
+                    </span>
+                  </span>
                 </span>
-                <span className="text-xs text-black/45">{mapped ? "Already linked" : `${v.currency} ${v.price ?? "price missing"}`}</span>
+                <span className="text-xs text-black/55">{mapped ? "Already linked" : selectedNow ? "Selected ✓" : `${v.currency} ${v.price ?? "price missing"}`}</span>
               </label>
             );
           })}
@@ -216,8 +224,12 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
         </button>
         <p className="mt-4 text-xs text-black/45">The new product remains linked but all website variants are disabled until you review their Creativehub IDs and test a supplier quote.</p>
       </section>
-      {message && <p role="status" className="text-sm text-green-700">{message}</p>}
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {(message || error) && (
+        <div aria-live="polite" className={`sticky bottom-4 z-20 border p-4 shadow-sm ${error ? "border-red-300 bg-[#fff2ed]" : "border-green-300 bg-[#eff8ee]"}`}>
+          {message && <p role="status" className="text-sm text-green-800">{message}</p>}
+          {error && <p role="alert" className="text-sm font-medium text-red-800">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
