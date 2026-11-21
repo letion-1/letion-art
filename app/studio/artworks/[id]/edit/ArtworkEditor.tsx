@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { createWebArtworkPreview } from "@/lib/studio/createWebArtworkPreview";
 type Collection = {
   id: string;
   title: string;
@@ -411,196 +412,79 @@ export default function ArtworkEditor({
     setMessage("");
   }
   async function replaceArtworkImage() {
-    if (
-      !replacementImage
-    ) {
-      return;
-    }
-    setReplacingImage(
-      true
-    );
-    setMessage(
-      "Replacing image..."
-    );
-    let uploadedPath:
-      | string
-      | null = null;
+    if (!replacementImage) return;
+    setReplacingImage(true);
+    setMessage("Preparing optimized gallery preview...");
+    const supabase = createClient();
+    const stamp = Date.now();
+    const originalExtension = getImageExtension(replacementImage);
+    const originalPath = `artworks/${artwork.id}-${stamp}.${originalExtension}`;
+    const previewPath = `web-previews/${artwork.id}-${stamp}.webp`;
+    let originalUploaded = false;
+    let previewUploaded = false;
+    let databaseUpdated = false;
     try {
-      const supabase =
-        createClient();
-      const extension =
-        getImageExtension(
-          replacementImage
-        );
-      const path =
-        `artworks/${artwork.id}-${Date.now()}.${extension}`;
-      const {
-        error:
-          uploadError,
-      } =
-        await supabase.storage
-          .from("artworks")
-          .upload(
-            path,
-            replacementImage,
-            {
-              upsert:
-                false,
-              contentType:
-                replacementImage.type,
-              cacheControl:
-                "3600",
-            }
-          );
-      if (
-        uploadError
-      ) {
-        throw uploadError;
-      }
-      uploadedPath =
-        path;
-      const {
-        data:
-          publicUrl,
-      } =
-        supabase.storage
-          .from("artworks")
-          .getPublicUrl(
-            path
-          );
-      const nextUrl =
-        publicUrl.publicUrl;
-      const {
-        error:
-          updateError,
-      } = await supabase
+      // Generate small preview first; fail safely before uploading anything.
+      const webPreview = await createWebArtworkPreview(replacementImage);
+      setMessage("Uploading original and optimized display image...");
+      // Preserve the original for later print production. NEVER delete the old master on replacement.
+      const { error: originalError } = await supabase.storage
         .from("artworks")
-        .update({
-          image_path:
-            path,
-          image_url:
-            nextUrl,
-        })
-        .eq(
-          "id",
-          artwork.id
-        );
-      if (
-        updateError
-      ) {
-        await supabase.storage
-          .from("artworks")
-          .remove([
-            path,
-          ]);
-        throw updateError;
-      }
-  /* Existing artwork editor section */
-
-      if (
-        currentImagePath &&
-        currentImagePath !==
-          path
-      ) {
-        const {
-          error:
-            deleteOldError,
-        } =
-          await supabase.storage
-            .from("artworks")
-            .remove([
-              currentImagePath,
-            ]);
-        if (
-          deleteOldError
-        ) {
-          console.warn(
-            "New image saved, but old image cleanup failed:",
-            deleteOldError
-          );
-        }
-      }
-      setCurrentImagePath(
-        path
-      );
-      setCurrentImageUrl(
-        nextUrl
-      );
-      if (
-        replacementPreview
-      ) {
-        URL.revokeObjectURL(
-          replacementPreview
-        );
-      }
-      setReplacementImage(
-        null
-      );
-      setReplacementPreview(
-        null
-      );
+        .upload(originalPath, replacementImage, {
+          upsert: false,
+          contentType: replacementImage.type,
+          cacheControl: "3600",
+        });
+      if (originalError) throw originalError;
+      originalUploaded = true;
+      const { error: previewError } = await supabase.storage
+        .from("artworks")
+        .upload(previewPath, webPreview, {
+          upsert: false,
+          contentType: "image/webp",
+          cacheControl: "31536000",
+        });
+      if (previewError) throw previewError;
+      previewUploaded = true;
+      const { data: previewPublicUrl } = supabase.storage
+        .from("artworks")
+        .getPublicUrl(previewPath);
+      const nextUrl = previewPublicUrl.publicUrl;
+      const { data: updatedRow, error: updateError } = await supabase
+        .from("artworks")
+        .update({ image_path: originalPath, image_url: nextUrl })
+        .eq("id", artwork.id)
+        .select("id")
+        .single();
+      if (updateError || !updatedRow) throw updateError || new Error("Could not update artwork record.");
+      databaseUpdated = true;
+      setCurrentImagePath(originalPath);
+      setCurrentImageUrl(nextUrl);
+      if (replacementPreview) URL.revokeObjectURL(replacementPreview);
+      setReplacementImage(null);
+      setReplacementPreview(null);
       setMessage(
-        "Artwork image replaced."
+        `Artwork updated. Website preview: ${Math.round(webPreview.size / 1024)} KB; print-quality original preserved.`
       );
       router.refresh();
     } catch (error) {
-  /* Existing artwork editor section */
-
-      if (
-        uploadedPath
-      ) {
-        try {
-          const supabase =
-            createClient();
-          const {
-            data:
-              currentRow,
-          } =
-            await supabase
-              .from(
-                "artworks"
-              )
-              .select(
-                "image_path"
-              )
-              .eq(
-                "id",
-                artwork.id
-              )
-              .single();
-          if (
-            currentRow
-              ?.image_path !==
-            uploadedPath
-          ) {
-            await supabase.storage
-              .from(
-                "artworks"
-              )
-              .remove([
-                uploadedPath,
-              ]);
-          }
-        } catch {
-          // Ignore cleanup failure.
+      // If the DB did not change, remove ONLY the two newly uploaded objects.
+      // Existing images, print masters and URLs are never deleted.
+      if (!databaseUpdated) {
+        const remove = [];
+        if (originalUploaded) remove.push(originalPath);
+        if (previewUploaded) remove.push(previewPath);
+        if (remove.length) {
+          const { error: cleanupError } = await supabase.storage.from("artworks").remove(remove);
+          if (cleanupError) console.warn("Could not clean up failed new uploads:", cleanupError);
         }
       }
-      console.error(
-        error
-      );
-      setMessage(
-        error instanceof
-          Error
-          ? error.message
-          : "Could not replace image."
-      );
+      console.error(error);
+      setMessage(error instanceof Error ? error.message : "Could not update image.");
     } finally {
-      setReplacingImage(
-        false
-      );
+      setReplacingImage(false);
     }
   }
-  /* Existing artwork editor section */
 
   async function addPrintVariant() {
     const supabase =
