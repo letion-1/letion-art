@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { estimatePrintSizes, type PrintSizeEstimate } from "@/lib/studio/estimatePrintSizes";
 
 type Variant = {
   id: string;
@@ -31,6 +32,7 @@ type ResponseResult = {
   artwork?: Preview["artwork"];
   variants?: Variant[];
   sync?: Preview["sync"];
+  estimate?: PrintSizeEstimate;
 };
 
 async function readResponse(response: Response): Promise<ResponseResult> {
@@ -53,6 +55,9 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [estimate, setEstimate] = useState<PrintSizeEstimate | null>(null);
+  const [estimateSource, setEstimateSource] = useState<"selected" | "stored" | null>(null);
+  const [checkingSizes, setCheckingSizes] = useState(false);
 
   const request = useCallback(async (payload: Record<string, unknown>) => {
     const response = await fetch("/api/studio/creativehub/catalog-sync", {
@@ -76,6 +81,43 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
   useEffect(() => {
     refresh().catch((e) => setError(e instanceof Error ? e.message : "Load failed."));
   }, [refresh]);
+
+  const checkSavedSizes = useCallback(async () => {
+    setCheckingSizes(true);
+    try {
+      const result = await request({ action: "estimate_sizes" });
+      if (!result.estimate) throw new Error("Saved-image size estimates were unavailable.");
+      setEstimate(result.estimate);
+      setEstimateSource("stored");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not inspect saved master.");
+    } finally { setCheckingSizes(false); }
+  }, [request]);
+
+  useEffect(() => {
+    if (data?.sync?.hasMaster && !file && !estimate) {
+      void checkSavedSizes();
+    }
+  }, [data?.sync?.hasMaster, file, estimate, checkSavedSizes]);
+
+  async function selectPrintMaster(selectedFile: File | null) {
+    setFile(selectedFile);
+    setEstimate(null);
+    setEstimateSource(null);
+    setError("");
+    if (!selectedFile) return;
+    // JPEG/PNG/WebP can be measured in-browser without uploading anything.
+    // TIFFs are analysed after their private-storage upload.
+    try {
+      const bitmap = await createImageBitmap(selectedFile);
+      const e = estimatePrintSizes(bitmap.width, bitmap.height);
+      bitmap.close();
+      setEstimate(e);
+      setEstimateSource("selected");
+    } catch {
+      setMessage("Image dimensions will be checked after upload. For TIFF, this is normal.");
+    }
+  }
 
   async function act(name: string, work: () => Promise<string>) {
     if (busy) return;
@@ -169,7 +211,7 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <input type="file" accept="image/jpeg,image/png,image/tiff,.tif,.tiff"
             disabled={!!busy || (data?.sync?.state !== undefined && data?.sync?.state !== "ready")}
-            onChange={(e) => setFile(e.target.files?.[0] || null)} className="max-w-full text-sm" />
+            onChange={(e) => { void selectPrintMaster(e.target.files?.[0] || null); }} className="max-w-full text-sm" />
           <button className="bg-black px-5 py-3 text-xs uppercase tracking-wider text-white disabled:opacity-40" type="button"
             disabled={!file || !!busy || Boolean(data?.sync && data.sync.state !== "ready")}
             onClick={() => act("upload", async () => {
@@ -183,12 +225,67 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
                 .uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: mime, upsert: false });
               if (uploadError) throw new Error(uploadError.message);
               setFile(null);
-              return "Print master uploaded to private storage. Ready to create product.";
+              setEstimate(null);
+              setEstimateSource(null);
+              return "Print master uploaded. Its dimensions will be checked from the saved file before product creation.";
             })}>
             {busy === "upload" ? "Uploading..." : "Upload print master"}
           </button>
         </div>
         <p className="mt-3 text-xs text-black/45">Master in storage: {data?.sync?.hasMaster ? "Recorded" : "Not yet uploaded"}</p>
+
+        <div className="mt-5 border border-black/15 bg-white/40 p-5" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-medium">Automatic print size suggestions</h3>
+              <p className="mt-1 text-xs leading-5 text-black/55">Studio estimates based on theprintspace's 300 PPI preferred and 200 PPI minimum guidelines. Keeps the original aspect ratio and does not upscale your artwork. Supplier Small/Medium/Large sizes may differ.</p>
+            </div>
+            {data?.sync?.hasMaster && (
+              <button type="button" disabled={!!busy || checkingSizes}
+                className="border border-black/20 px-4 py-2 text-[10px] uppercase tracking-wider disabled:opacity-40"
+                onClick={() => { void checkSavedSizes(); }}>
+                {checkingSizes ? "Reading master..." : "Check saved image"}
+              </button>
+            )}
+          </div>
+          {estimate ? (
+            <div className="mt-4 space-y-3 text-sm">
+              <p className="text-black/70">{estimate.widthPx.toLocaleString()} × {estimate.heightPx.toLocaleString()} px · {estimate.megapixels.toFixed(2)} MP · {estimateSource === "stored" ? "Saved print master" : "Selected local file"}</p>
+              {!estimate.meetsCreativehubMinimum || !estimate.meetsCreativehubStandardMaximum ? (
+                <p role="alert" className="border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800">{!estimate.meetsCreativehubMinimum ? "Below Creativehub's 2 MP upload minimum. Upload a genuine higher-resolution master. Enlarging does not restore detail." : "Above Creativehub's standard 200 MP upload limit. Reduce pixel dimensions from your original without discarding needed print detail."}</p>
+              ) : (
+                <p className="text-green-800">Meets the Creativehub 2 MP upload threshold. Print sharpness and frame availability still require verification.</p>
+              )}
+              <p className="text-xs text-black/60">Maximum at 300 PPI: {(estimate.preferredMaxWidthMm / 10).toFixed(1)} × {(estimate.preferredMaxHeightMm / 10).toFixed(1)} cm. At 200 PPI: {(estimate.minimumMaxWidthMm / 10).toFixed(1)} × {(estimate.minimumMaxHeightMm / 10).toFixed(1)} cm.</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {estimate.suggestions.map(s => (
+                  <div key={s.tier} className="border border-black/10 p-3">
+                    <p className="text-xs uppercase tracking-wider text-black/50">{s.tier}</p>
+                    <p className="mt-1 font-medium">{(s.widthMm / 10).toFixed(1)} × {(s.heightMm / 10).toFixed(1)} cm</p>
+                    <p className="mt-1 text-xs text-black/45">Estimated at 300 PPI</p>
+                  </div>
+                ))}
+              </div>
+              {estimate.meetsCreativehubMinimum && estimate.meetsCreativehubStandardMaximum && estimateSource === "stored" && !file && data?.sync?.hasMaster && data.sync.state === "ready" && (
+                <button type="button" disabled={!!busy || checkingSizes}
+                  className="border border-black bg-black px-5 py-3 text-xs uppercase tracking-wider text-white disabled:opacity-40"
+                  onClick={() => act("apply_sizes", async () => {
+                    if (!window.confirm("Apply estimated Small / Medium / Large dimensions in LETION ART Studio? Existing UNLINKED S/M/L variants will be resized, all affected options disabled for review, and missing tiers created. No Creativehub product or order will be changed.")) return "No sizes changed.";
+                    const result = await request({ action: "apply_size_estimates" });
+                    setEstimate(result.estimate || null);
+                    setEstimateSource("stored");
+                    return result.message || "Studio size estimates applied.";
+                  })}>
+                  {busy === "apply_sizes" ? "Applying estimates..." : "Apply S / M / L sizes to Studio"}
+                </button>
+              )}
+              <p className="text-[11px] leading-5 text-black/50">These three proportional tiers (50%, 75%, 100% of the 300 PPI maximum) are Studio's conservative planning defaults, not theprintspace's exact AI recommendations. Framed sizes can differ. Applying changes local print options only; check supplier sizes and quotes before enabling sales.</p>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-black/45">Choose a print master above to preview automatic dimensions. If the master is already stored, click Check saved image.</p>
+          )}
+        </div>
+
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {selected.map((v) => (
             <label key={v.id} className="block text-xs text-black/60">
@@ -213,7 +310,7 @@ export default function SyncClient({ artworkId }: { artworkId: string }) {
             className="mt-2 w-full border border-black/20 bg-transparent px-4 py-3 text-sm" />
         </label>
         <button className="mt-5 bg-black px-6 py-4 text-xs uppercase tracking-wider text-white disabled:opacity-40" type="button"
-          disabled={!!busy || selected.length === 0 || confirmation !== "CREATE CREATIVEHUB PRODUCT" || !data?.sync?.hasMaster || data.sync.state !== "ready"}
+          disabled={!!busy || !!file || selected.length === 0 || confirmation !== "CREATE CREATIVEHUB PRODUCT" || !data?.sync?.hasMaster || data.sync.state !== "ready" || estimateSource !== "stored" || (!estimate?.meetsCreativehubMinimum || !estimate?.meetsCreativehubStandardMaximum)}
           onClick={() => act("create", async () => {
             if (!window.confirm("Create a real product and draft drop in your Creativehub account? This does NOT place a customer production order.")) return "Creation cancelled.";
             const gbpPrices = Object.fromEntries(selected.map((v) => [v.id, Number(prices[v.id])]));

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { estimatePrintSizes } from "@/lib/studio/estimatePrintSizes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ type ContextVariant = {
   creativehub_product_id: string | null;
 };
 type Input = {
-  action: "upload_ticket" | "preview" | "link" | "create" | "recover";
+  action: "upload_ticket" | "preview" | "link" | "create" | "recover" | "estimate_sizes" | "apply_size_estimates";
   artworkId: string;
   productId?: string;
   selectedIds?: string[];
@@ -215,6 +216,78 @@ export async function POST(request: Request) {
       } : null });
     }
 
+
+    if (body.action === "estimate_sizes" || body.action === "apply_size_estimates") {
+      if (!sync?.master_path) throw new RequestError("Upload your full-resolution print master first.", 409);
+      const { data: stored, error: downloadError } = await db.storage
+        .from("print-masters").download(sync.master_path);
+      if (downloadError || !stored) throw new RequestError("Cannot read the saved print master.", 409);
+      if (stored.size > 50 * 1024 * 1024) throw new RequestError("Print master exceeds this Studio's 50 MB processing limit.", 413);
+      const sharp = (await import("sharp")).default;
+      const metadata = await sharp(Buffer.from(await stored.arrayBuffer()), {
+        limitInputPixels: 300_000_000,
+      }).metadata();
+      const sideways = [5, 6, 7, 8].includes(metadata.orientation || 1);
+      const widthPx = sideways ? metadata.height : metadata.width;
+      const heightPx = sideways ? metadata.width : metadata.height;
+      if (!widthPx || !heightPx) throw new RequestError("Could not read image pixel dimensions.", 422);
+      const estimate = estimatePrintSizes(widthPx, heightPx);
+      if (body.action === "estimate_sizes") {
+        // No supplier call, no database write. Tier fractions are local estimates.
+        return NextResponse.json({ success: true, estimate });
+      }
+      if (sync.state !== "ready" || sync.product_id || sync.upload_id || sync.drop_id) {
+        throw new RequestError("Cannot change dimensions once Creativehub sync has started. Review the existing supplier mapping.", 409);
+      }
+      if (!estimate.meetsCreativehubMinimum) {
+        throw new RequestError(`This master is only ${estimate.megapixels} MP. Creativehub requires at least 2 MP. Upload a higher-resolution original.`, 422);
+      }
+      if (!estimate.meetsCreativehubStandardMaximum) {
+        throw new RequestError(`This master is ${estimate.megapixels} MP, above Creativehub's standard 200 MP upload limit.`, 422);
+      }
+      // Ensure no existing supplier mapping for this artwork can be changed.
+      if (variants.some(v => v.creativehub_variant_id || v.creativehub_product_id)) {
+        throw new RequestError("This artwork already has linked variants. Auto-sizing will not change supplier-mapped products.", 409);
+      }
+      const plan = estimate.suggestions;
+      let updated = 0;
+      let created = 0;
+      // Deliberately preserve all retail prices and papers on existing variants.
+      // Disable affected variants until the artist reviews pricing and framing.
+      for (const s of plan) {
+        const oldRows = variants.filter(v => new RegExp(`^${s.tier}(?:\\s|\\/|$)`, "i").test(v.name.trim()));
+        if (oldRows.length) {
+          for (const old of oldRows) {
+            const { error } = await db.from("print_variants").update({
+              width_mm: s.widthMm,
+              height_mm: s.heightMm,
+              size_label: `${(s.widthMm / 10).toFixed(1)} × ${(s.heightMm / 10).toFixed(1)} cm`,
+              active: false,
+            }).eq("artwork_id", artworkId).eq("id", old.id)
+              .is("creativehub_variant_id", null).is("creativehub_product_id", null);
+            if (error) throw new RequestError(`Failed updating ${old.name}: ${error.message}`, 500);
+            updated++;
+          }
+        } else {
+          const { error } = await db.from("print_variants").insert({
+            artwork_id: artworkId,
+            name: `${s.tier} / Print only`,
+            size_label: `${(s.widthMm / 10).toFixed(1)} × ${(s.heightMm / 10).toFixed(1)} cm`,
+            width_mm: s.widthMm, height_mm: s.heightMm,
+            price: null, currency: "EUR", paper: "Hahnemühle Photo Rag", finish: "Giclée",
+            framed: false, frame_style: null, framing_details: null,
+            creativehub_sku: null, creativehub_product_id: null, creativehub_variant_id: null,
+            estimated_fulfilment_cost: null, fulfilment_currency: "GBP",
+            active: false, sort_order: variants.length + created + 1,
+          });
+          if (error) throw new RequestError(`Failed creating ${s.tier}: ${error.message}`, 500);
+          created++;
+        }
+      }
+      return NextResponse.json({ success: true, estimate,
+        message: `Studio print sizes applied: ${updated} existing option(s) resized, ${created} new option(s) added. All changed options remain disabled. Review frame compatibility, paper and retail prices before Creativehub creation.` });
+    }
+
     if (body.action === "upload_ticket") {
       if (sync && sync.state !== "ready") {
         throw new RequestError("A linked or partially created product cannot have its master replaced.", 409);
@@ -323,6 +396,22 @@ export async function POST(request: Request) {
     });
     const border = body.border || "small";
     if (!["none", "small", "large"].includes(border)) throw new RequestError("Invalid print border.");
+    // Preflight before locking the sync state or making ANY supplier request.
+    // Creativehub rejects print artwork below 2 megapixels with HTTP 413.
+    const { data: createMaster, error: createMasterError } = await db.storage
+      .from("print-masters").download(sync.master_path);
+    if (createMasterError || !createMaster) throw new RequestError("The saved print master is unavailable. Upload it again before creating a product.", 409);
+    const createSharp = (await import("sharp")).default;
+    const createMetadata = await createSharp(Buffer.from(await createMaster.arrayBuffer()), {
+      limitInputPixels: 300_000_000,
+    }).metadata();
+    if (!createMetadata.width || !createMetadata.height) throw new RequestError("Cannot read print master dimensions.", 422);
+    if (createMetadata.width * createMetadata.height > 200_000_000) {
+      throw new RequestError("The print master exceeds Creativehub's standard 200 MP limit. Prepare a compliant export first.", 422);
+    }
+    if (createMetadata.width * createMetadata.height < 2_000_000) {
+      throw new RequestError(`The print master is ${(createMetadata.width * createMetadata.height / 1_000_000).toFixed(2)} MP. Creativehub requires at least 2 MP. Upload a genuine higher-resolution original before creating a product.`, 422);
+    }
     // Atomic database claim: only one request can begin provider creation.
     const { data: claim, error: claimError } = await db.from("artwork_creativehub_sync")
       .update({ state: "creating", selected_variant_ids: selected.map((v) => v.id), last_error: null, updated_at: new Date().toISOString() })
