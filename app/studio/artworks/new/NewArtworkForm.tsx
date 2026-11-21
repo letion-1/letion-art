@@ -10,6 +10,7 @@ import {
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { uploadNewArtworkWithPreview } from "@/lib/studio/uploadNewArtworkWithPreview";
 
 type Collection = {
   id: string;
@@ -276,14 +277,10 @@ export default function NewArtworkForm({
       /*
        * 1. Upload artwork image
        */
+      let __letionNewArtworkPreviewPath: string | null = null;
       const {
         error: uploadError,
-      } = await supabase.storage
-        .from("artworks")
-        .upload(
-          storagePath,
-          file,
-          {
+      } = await uploadNewArtworkWithPreview(supabase, storagePath, file, {
             cacheControl:
               "3600",
 
@@ -291,8 +288,7 @@ export default function NewArtworkForm({
 
             contentType:
               file.type,
-          }
-        );
+          }).then((result) => { __letionNewArtworkPreviewPath = result.previewPath; return result; });
 
       if (uploadError) {
         throw uploadError;
@@ -306,7 +302,7 @@ export default function NewArtworkForm({
       } = supabase.storage
         .from("artworks")
         .getPublicUrl(
-          storagePath
+          (__letionNewArtworkPreviewPath ?? storagePath)
         );
 
       /*
