@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import CreativehubMappingAudit from "./CreativehubMappingAudit";
 import { useMemo, useState } from "react";
 
 type Variant = {
@@ -64,6 +65,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [showRemote, setShowRemote] = useState(false);
   const [copied, setCopied] = useState("");
+  const [nextRemoteOffset, setNextRemoteOffset] = useState<number | null>(null);
 
   const variants = artworks.flatMap((artwork) => artwork.variants);
   const counts = {
@@ -85,15 +87,28 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
     })
     .filter((entry) => entry.matching.length || entry.showEmpty), [artworks, query, filter]);
 
-  async function loadRemote() {
+  async function loadRemote(more = false) {
+    if (remoteBusy) return;
     setShowRemote(true);
     setRemoteBusy(true);
     setRemoteError("");
     try {
-      const response = await fetch("/api/studio/creativehub/products", { credentials: "same-origin", cache: "no-store" });
+      const offset = more ? nextRemoteOffset : 0;
+      if (offset === null) return;
+      const response = await fetch(`/api/studio/creativehub/products?offset=${offset}`, {
+        credentials: "same-origin", cache: "no-store",
+      });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || `Creativehub HTTP ${response.status}`);
-      setRemote(json.products as RemoteProduct[]);
+      const incoming = json.products as RemoteProduct[];
+      if (!Array.isArray(incoming)) throw new Error("Creativehub returned an unexpected product list.");
+      setRemote((previous) => {
+        if (!more) return incoming;
+        const merged = new Map((previous ?? []).map((item) => [item.id, item]));
+        for (const item of incoming) merged.set(item.id, item);
+        return [...merged.values()];
+      });
+      setNextRemoteOffset(typeof json.nextOffset === "number" ? json.nextOffset : null);
     } catch (err) {
       setRemoteError(err instanceof Error ? err.message : "Could not load Creativehub catalog.");
     } finally {
@@ -169,6 +184,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
                     <Link href={`/studio/artworks/${artwork.id}/creativehub`} className="bg-black px-4 py-3 text-[10px] uppercase tracking-wider text-white hover:opacity-75">Create / Link in Creativehub</Link>
                   </div>
                 </div>
+                <CreativehubMappingAudit artworkId={artwork.id} />
                 {artwork.sync?.error && <p role="alert" className="border-b border-black/10 px-5 py-3 text-xs text-red-800">Sync needs review: {artwork.sync.error}</p>}
                 {showEmpty && <p className="p-5 text-sm text-black/45">No variants yet. Use <Link className="underline" href={`/studio/artworks/${artwork.id}/edit`}>Edit options</Link> to add your print sizes.</p>}
                 {matching.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-black/10 text-[10px] uppercase tracking-widest text-black/40"><th className="px-5 py-4 font-medium">Print / size</th><th className="px-5 py-4 font-medium">Paper / frame</th><th className="px-5 py-4 font-medium">Store price</th><th className="px-5 py-4 font-medium">Creativehub</th><th className="px-5 py-4 font-medium">Status</th></tr></thead>
@@ -185,11 +201,17 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
               <h2 className="text-2xl tracking-tight">Creativehub products in your account</h2>
               <p className="mt-2 max-w-xl text-sm leading-6 text-black/50">Read-only lookup of products already in your Creativehub space. Copy a product ID, then choose the artwork above and use “Create / Link in Creativehub.”</p>
             </div>
-            <button type="button" onClick={loadRemote} disabled={remoteBusy} className="shrink-0 bg-black px-5 py-3 text-[10px] uppercase tracking-widest text-white disabled:opacity-40">{remoteBusy ? "Loading..." : remote ? "Refresh products" : "Load Creativehub products"}</button>
+            <button type="button" onClick={() => loadRemote(false)} disabled={remoteBusy} className="shrink-0 bg-black px-5 py-3 text-[10px] uppercase tracking-widest text-white disabled:opacity-40">{remoteBusy ? "Loading..." : remote ? "Refresh products" : "Load Creativehub products"}</button>
           </div>
           {remoteError && <p role="alert" className="mt-4 text-sm text-red-700">{remoteError}</p>}
           {showRemote && remote && <div className="mt-6 space-y-3">{remote.length === 0 ? <p className="text-sm text-black/50">No products returned by Creativehub.</p> : remote.map((item) => <div key={item.id} className="flex flex-col gap-3 border-b border-black/10 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="font-medium">{item.name}</p><p className="mt-1 break-all font-mono text-xs text-black/45">{item.id}</p><p className="mt-1 text-xs text-black/40">{item.variantCount} remote variant(s)</p></div><button type="button" onClick={() => copyProductId(item.id)} className="shrink-0 border border-black/30 px-4 py-2 text-xs hover:bg-black hover:text-white">{copied === item.id ? "Copied" : "Copy product ID"}</button></div>)}</div>}
-          {showRemote && remote && remote.length === 200 && <p className="mt-4 text-xs text-amber-800">Showing the first 200 products. The remote catalog will need pagination for larger accounts.</p>}
+          {showRemote && remote && nextRemoteOffset !== null && (
+            <button type="button" onClick={() => loadRemote(true)} disabled={remoteBusy}
+              className="mt-4 border border-black/25 px-5 py-3 text-xs uppercase tracking-wider disabled:opacity-40">
+              {remoteBusy ? "Loading..." : `Load more Creativehub products (${remote.length} shown)`}
+            </button>
+          )}
+
         </section>
         <p className="mt-8 max-w-3xl text-xs leading-6 text-black/45">Safety: These statuses describe your local Studio mappings. They are not proof of current Creativehub inventory. Creating or linking requires the existing protected sync flow, and customer orders still require separate approval before production. Never overwrite existing variants in bulk: Creativehub can regenerate variant IDs and SKUs.</p>
       </div>

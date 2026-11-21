@@ -5,22 +5,30 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const BASE = "https://escher-v2.creativehub.io/v1";
+const LIMIT = 100;
 type RemoteProduct = { id?: unknown; name?: unknown; variant_count?: unknown };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const auth = await createClient();
-    const { data: { user } } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Sign in to Studio." }, { status: 401 });
+    const { data: { user }, error: authError } = await auth.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: "Sign in to Studio." }, { status: 401 });
     const admin = createAdminClient();
     const { data: membership, error } = await admin.from("studio_admins")
       .select("user_id").eq("user_id", user.id).maybeSingle();
     if (error || !membership) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
 
+    const url = new URL(request.url);
+    const rawOffset = url.searchParams.get("offset") ?? "0";
+    if (!/^(0|[1-9][0-9]*)$/.test(rawOffset) || Number(rawOffset) > 100000) {
+      return NextResponse.json({ error: "Invalid product offset." }, { status: 400 });
+    }
+    const offset = Number(rawOffset);
     const token = process.env.ESCHER_API_TOKEN;
     if (!token) return NextResponse.json({ error: "Creativehub API token is not configured." }, { status: 503 });
-    const base = (process.env.ESCHER_API_BASE_URL || "https://escher-v2.creativehub.io/v1").replace(/\/$/, "");
-    const response = await fetch(`${base}/products?limit=200&offset=0`, {
+    const base = (process.env.ESCHER_API_BASE_URL || BASE).replace(/\/$/, "");
+    const response = await fetch(`${base}/products?limit=${LIMIT}&offset=${offset}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
@@ -34,7 +42,8 @@ export async function GET() {
     const products = (body.products as RemoteProduct[])
       .filter((row) => row && typeof row.id === "string" && typeof row.name === "string")
       .map((row) => ({ id: row.id as string, name: row.name as string, variantCount: Number(row.variant_count) || 0 }));
-    return NextResponse.json({ products }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ products, nextOffset: body.products.length === LIMIT ? offset + LIMIT : null },
+      { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("Creativehub read-only product lookup failed:", err);
     return NextResponse.json({ error: "Unable to load Creativehub products." }, { status: 502 });
