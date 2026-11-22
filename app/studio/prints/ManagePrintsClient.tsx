@@ -3,6 +3,7 @@
 import Link from "next/link";
 import CreativehubMappingAudit from "./CreativehubMappingAudit";
 import CreativehubSupplierPlanner from "./CreativehubSupplierPlanner";
+import ManagePrintsDeleteButton from "./ManagePrintsDeleteButton";
 import { useMemo, useState } from "react";
 
 type Variant = {
@@ -145,6 +146,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href="/studio/artworks" className="border border-black px-5 py-3 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white">Artworks</Link>
+              <Link href="/studio/prints/import" className="border border-black px-5 py-3 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white">Import Creativehub drafts</Link>
               <Link href="/studio/creativehub/quotes" className="bg-black px-5 py-3 text-[10px] uppercase tracking-widest text-white hover:opacity-75">Supplier quotes</Link>
             </div>
           </div>
@@ -183,6 +185,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
                   <div className="flex flex-wrap gap-2">
                     <Link href={`/studio/artworks/${artwork.id}/edit`} className="border border-black/20 px-4 py-3 text-[10px] uppercase tracking-wider hover:border-black">Edit options</Link>
                     <Link href={`/studio/artworks/${artwork.id}/creativehub`} className="bg-black px-4 py-3 text-[10px] uppercase tracking-wider text-white hover:opacity-75">Create / Link in Creativehub</Link>
+                    <ManagePrintsDeleteButton artworkId={artwork.id} title={artwork.title} />
                   </div>
                 </div>
                 <CreativehubMappingAudit artworkId={artwork.id} />

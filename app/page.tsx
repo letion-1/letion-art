@@ -1,4 +1,5 @@
 
+import FeaturedArtworks from "@/app/components/FeaturedArtworks";
 import Link from "next/link";
 import HeroVideo from "./components/HeroVideo";
 import CollectionMarquee, {
@@ -227,6 +228,7 @@ export default async function HomePage() {
           THE WORK
       ====================================== */}
 
+      <FeaturedArtworks />
       <section className="relative py-24 md:py-32">
         <div className="mx-auto max-w-[1600px] px-6 pb-12 md:px-10 md:pb-16">
           <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:items-end">
