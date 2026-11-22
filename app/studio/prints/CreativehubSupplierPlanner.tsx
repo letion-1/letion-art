@@ -113,7 +113,7 @@ export default function CreativehubSupplierPlanner({ artworkId }: { artworkId: s
           <p className="mt-1 break-all text-[11px] text-black/45">Product: {inspection.productId} · {inspection.variantCount ?? 0} supplier variants · Sync: {inspection.syncState}</p>
           {inspection.variantCount === 0 && <div className="mt-4 space-y-3">
             <p className="text-sm text-amber-900">Creativehub has no configured variants yet. That is why a production quote is unavailable.</p>
-            <p className="text-xs leading-6 text-black/60">Supplier recommendations may modify this draft product and run asynchronously. They are separate from the Studio image-resolution estimates and do not submit any customer order.</p>
+            <p className="text-xs leading-6 text-black/60">Creativehub recommendations can update all draft products in this drop. Confirm the drop contains only the intended artwork before requesting. No customer order is placed.</p>
             {inspection.recommendationRequested ? <p className="text-sm text-black/70">Supplier recommendations were requested previously. Inspect the draft in Creativehub and refresh here; do not request them repeatedly.</p> : inspection.canRequestRecommendations ? <div className="space-y-2">
               <label htmlFor={`confirm-${artworkId}`} className="block text-xs">Type <strong>REQUEST CREATIVEHUB RECOMMENDATIONS</strong> to authorize a change to this supplier draft.</label>
               <input id={`confirm-${artworkId}`} value={confirmation} onChange={e => setConfirmation(e.target.value)} className="w-full border border-black/20 bg-transparent px-3 py-2 text-sm" />

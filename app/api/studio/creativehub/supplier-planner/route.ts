@@ -155,7 +155,7 @@ export async function POST(request: Request) {
       supplier(`/drops/${encodeURIComponent(sync.drop_id)}`),
     ]);
     if (rows.length) throw new SafeError("Supplier already has variants. Review them without regenerating IDs.", 409);
-    if (str(supplierDrop.status).toLowerCase() !== "draft") {
+    if (str(supplierDrop.id) !== sync.drop_id || !(supplierDrop.status === 1 || ["1", "draft"].includes(str(supplierDrop.status).toLowerCase()))) {
       throw new SafeError("Creativehub drop is not confirmed as Draft. No recommendations were requested.", 409);
     }
     // Atomic state claim stops simultaneous recommendation writes. A failed/timeout request stays locked for review.
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
     if (claimed.error || !claimed.data) throw new SafeError("Sync state changed. Refresh before requesting recommendations.", 409);
     try {
       // This is a supplier draft WRITE, deliberately initiated only from a separate, confirmed admin action.
-      await supplier(`/drops/${encodeURIComponent(sync.drop_id)}/products/${encodeURIComponent(sync.product_id)}/recommendations`, "POST", {});
+      await supplier("/recommendations", "POST", { drop_id: sync.drop_id });
       await db.from("artwork_creativehub_sync").update({ state: "needs_review", last_error: `${REQUESTED}. Await supplier result; inspect the draft before mapping.`, updated_at: new Date().toISOString() })
         .eq("artwork_id", artworkId).eq("state", "creating").eq("product_id", sync.product_id);
       return NextResponse.json({ recommendationRequested: true, message: "Creativehub recommendation request accepted. It can process asynchronously. Check the supplier draft and refresh Manage Prints; no customer order was placed." }, { headers: { "Cache-Control": "private, no-store" } });
