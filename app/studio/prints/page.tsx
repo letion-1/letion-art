@@ -55,7 +55,7 @@ export default async function ManagePrintsPage() {
     .maybeSingle();
   if (membershipError || !membership) notFound();
 
-  const [artworkQuery, variantQuery, syncQuery] = await Promise.all([
+  const [artworkQuery, variantQuery, syncQuery, hiddenQuery] = await Promise.all([
     admin.from("artworks")
       .select("id,title,image_url,prints_available,published")
       .order("title", { ascending: true })
@@ -67,11 +67,14 @@ export default async function ManagePrintsPage() {
     admin.from("artwork_creativehub_sync")
       .select("artwork_id,state,product_id,master_path,last_error")
       .limit(1000),
+    admin.from("studio_print_catalog_hidden").select("artwork_id").limit(1000),
   ]);
 
   if (artworkQuery.error) throw new Error(`Artworks could not be loaded: ${artworkQuery.error.message}`);
   if (variantQuery.error) throw new Error(`Print options could not be loaded: ${variantQuery.error.message}`);
   if (syncQuery.error) throw new Error(`Creativehub mappings could not be loaded: ${syncQuery.error.message}`);
+  if (hiddenQuery.error) throw new Error("Apply Phase 8 Supabase SQL before using Manage Prints.");
+  const hiddenIds = new Set((hiddenQuery.data ?? []).map(row => row.artwork_id));
 
   const artworkRows = (artworkQuery.data ?? []) as ArtworkRow[];
   const variants = (variantQuery.data ?? []) as VariantRow[];
@@ -84,7 +87,7 @@ export default async function ManagePrintsPage() {
   }
   const bySync = new Map(syncRows.map((row) => [row.artwork_id, row]));
   const artworks = artworkRows
-    .filter((row) => row.prints_available || byArtwork.has(row.id))
+    .filter((row) => (row.prints_available || byArtwork.has(row.id)) && !hiddenIds.has(row.id))
     .map((row) => {
       const sync = bySync.get(row.id);
       return {
