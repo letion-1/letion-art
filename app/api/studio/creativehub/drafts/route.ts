@@ -77,6 +77,49 @@ function present(product: Rec, variants: unknown[], artworkId: string | null) {
   };
 }
 
+// Refresh only supplier display photos. Never import the print master URL.
+// Existing public-photo choices are preserved by stable Creativehub variant ID.
+async function syncDisplayPhotos(db: Awaited<ReturnType<typeof adminDb>>, artworkId: string,
+  productId: string, product: Rec, variants: unknown[]) {
+  const photoDb = db.from("studio_creativehub_product_photos");
+  const old = await photoDb.select("photo_key,is_public,sort_order")
+    .eq("artwork_id", artworkId);
+  if (old.error) return `Product photos were not refreshed: ${old.error.message}`;
+  const previous = new Map<string, { is_public: boolean; sort_order: number }>(
+    (old.data || []).map((p: { photo_key: string; is_public: boolean; sort_order: number }) =>
+      [p.photo_key, { is_public: p.is_public, sort_order: p.sort_order }])
+  );
+  const choices: Array<{ photo_key: string; photo_type: string; image_url: string;
+    caption: string; supplier_variant_id: string | null }> = [];
+  const preview = safeUrl(product.artwork_preview_medium_url) || safeUrl(product.artwork_thumbnail_url);
+  if (preview) choices.push({ photo_key: "artwork-preview", photo_type: "artwork_preview",
+    image_url: preview, caption: "Artwork preview", supplier_variant_id: null });
+  for (const raw of variants) {
+    const v = rec(raw); const id = str(v.id); const url = safeUrl(v.visualised_product_url);
+    if (!UUID.test(id) || !url) continue;
+    choices.push({ photo_key: `variant:${id}`, photo_type: "supplier_mockup",
+      image_url: url, caption: `${str(v.size) || str(v.size_label) || "Print"} · ${v.is_framed === true ? "Framed " + (str(v.frame_color) || "print") : "Unframed"}`,
+      supplier_variant_id: id });
+  }
+  if (choices.length > 100) return "Creativehub returned too many photos. Review the photo gallery separately.";
+  const rows = choices.map((photo, index) => ({ ...photo, artwork_id: artworkId,
+    product_id: productId, refreshed_at: new Date().toISOString(),
+    is_public: previous.get(photo.photo_key)?.is_public ?? false,
+    sort_order: previous.get(photo.photo_key)?.sort_order ?? index + 1 }));
+  if (rows.length) {
+    const saved = await photoDb.upsert(rows, { onConflict: "artwork_id,photo_key" });
+    if (saved.error) return `Product photos were not refreshed: ${saved.error.message}`;
+  }
+  const keys = choices.map(v => v.photo_key);
+  const stale = (old.data || []).filter(v => !keys.includes(v.photo_key)).map(v => v.photo_key);
+  if (stale.length) {
+    const hidden = await photoDb.update({ is_public: false })
+      .eq("artwork_id", artworkId).in("photo_key", stale);
+    if (hidden.error) return `Retired product photos could not be hidden: ${hidden.error.message}`;
+  }
+  return null;
+}
+
 function errorResponse(error: unknown) {
   if (!(error instanceof ErrorReply)) console.error("Creativehub draft import:", error);
   return NextResponse.json({ error: error instanceof ErrorReply ? error.message : "Import could not be completed. No Creativehub changes were attempted." },
@@ -132,6 +175,14 @@ export async function POST(request: Request) {
       p_existing_artwork_id: existingArtworkId, p_collection_id: collectionId,
     });
     if (result.error) throw new ErrorReply(result.error.message, 409);
-    return NextResponse.json({ success: true, result: result.data, note: "Imported as an unpublished, inactive website draft. No supplier products or orders created." }, { headers: { "Cache-Control": "private, no-store" } });
+    const outcome = rec(result.data);
+    const artworkId = str(outcome.artworkId);
+    const photoWarning = UUID.test(artworkId)
+      ? await syncDisplayPhotos(db, artworkId, productId, product, variants)
+      : "No linked artwork ID was returned for product photo refresh.";
+    return NextResponse.json({ success: true, result: result.data, photoWarning,
+      product: present(product, variants, artworkId),
+      note: "Creativehub data synchronized. Existing website EUR prices and artwork files preserved. New variants remain inactive." },
+      { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }

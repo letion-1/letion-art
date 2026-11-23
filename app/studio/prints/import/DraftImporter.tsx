@@ -16,7 +16,9 @@ type ProductDetail = {
   coaTemplate: string | null; printInsertId: string | null; linkedArtworkId: string | null;
   variants: ProductVariant[];
 };
-type ImportResult = { artworkId: string; createdPrintOptions: number; remoteVariants: number; unusableSupplierVariants: number };
+type ImportResult = { artworkId: string; createdPrintOptions: number; updatedPrintOptions?: number;
+  disabledUnavailableOptions?: number; relinkedPrintSetup?: boolean;
+  remoteVariants: number; unusableSupplierVariants: number };
 
 export default function DraftImporter({ artworks, collections }: { artworks: Option[]; collections: Option[] }) {
   const [products, setProducts] = useState<ProductBrief[]>([]);
@@ -50,28 +52,40 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
       const response = await fetch(`/api/studio/creativehub/drafts?productId=${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || `Creativehub HTTP ${response.status}`);
-      setSelected(body.product as ProductDetail);
+      const next = body.product as ProductDetail;
+      setSelected(next);
+      // Avoid creating another website artwork when one already has this name.
+      const matches = artworks.filter(a => a.title.trim().toLowerCase() === next.name.trim().toLowerCase());
+      if (!next.linkedArtworkId && matches.length === 1) {
+        setMode("link"); setExistingId(matches[0].id);
+      } else if (!next.linkedArtworkId) {
+        setMode("create"); setExistingId("");
+      }
       setConfirmation("");
     } catch (err) { setError(err instanceof Error ? err.message : "Could not inspect supplier product."); }
     finally { setBusy(false); }
   }
 
-  async function importDraft() {
+  async function importDraft(syncExisting = false) {
     if (!selected || busy) return;
     setBusy(true); setError(""); setMessage(""); setResult(null);
     try {
       const response = await fetch("/api/studio/creativehub/drafts", {
         method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productId: selected.id, confirmation,
-          existingArtworkId: mode === "link" ? existingId : null,
-          collectionId: mode === "create" ? collectionId : null,
+          productId: selected.id,
+          confirmation: syncExisting ? "IMPORT CREATIVEHUB DRAFT" : confirmation,
+          existingArtworkId: syncExisting ? selected.linkedArtworkId : mode === "link" ? existingId : null,
+          collectionId: syncExisting ? null : mode === "create" ? collectionId : null,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || `Import failed (HTTP ${response.status})`);
       setResult(body.result as ImportResult);
-      setMessage("Imported successfully. The artwork is unpublished, all new print options are disabled, and original supplier data is preserved.");
+      if (body.product) setSelected(body.product as ProductDetail);
+      setMessage(syncExisting
+        ? `Synced latest Creativehub details: ${Number(body.result?.updatedPrintOptions ?? 0)} options updated, ${Number(body.result?.createdPrintOptions ?? 0)} new options. Existing EUR prices preserved.${body.photoWarning ? " " + body.photoWarning : ""}`
+        : `Imported successfully. Existing artwork images and EUR prices were preserved. New print options remain disabled.${body.photoWarning ? " " + body.photoWarning : ""}`);
       setConfirmation("");
       await refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Import failed."); }
@@ -82,12 +96,12 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
     <main className="mx-auto max-w-[1400px] px-5 py-12 text-[#111] md:px-10">
       <Link href="/studio/prints" className="text-xs uppercase tracking-widest text-black/50 hover:text-black">← Manage Prints</Link>
       <p className="mt-10 text-[10px] uppercase tracking-[0.2em] text-black/45">LETION / STUDIO · CREATIVEHUB</p>
-      <h1 className="mt-3 text-4xl tracking-[-0.05em] md:text-6xl">Import product drafts</h1>
-      <p className="mt-5 max-w-3xl text-sm leading-7 text-black/55">Browse existing Creativehub products, review their images, certificate configuration and exact supplier variants, then import each into LETION ART as an unpublished draft. Imports are deduplicated by Creativehub product and variant IDs. No supplier products or orders are created.</p>
-      <p className="mt-2 max-w-3xl text-xs leading-6 text-amber-800">Creativehub’s product list does not guarantee a Draft status field. Only select the supplier products you intend to import. Imported website artwork is always unpublished and print sales are off.</p>
+      <h1 className="mt-3 text-4xl tracking-[-0.05em] md:text-6xl">Import & sync Creativehub</h1>
+      <p className="mt-5 max-w-3xl text-sm leading-7 text-black/55">Import a Creativehub product once, then sync it whenever you change its prices, frames, paper, sizes or mockups in Creativehub. Existing website EUR prices and artwork publication settings are preserved. No supplier products or orders are created.</p>
+      <p className="mt-2 max-w-3xl text-xs leading-6 text-amber-800">Creativehub does not reliably identify draft status. Newly created website artworks are unpublished and print sales start disabled. Existing artwork visibility is never changed by a sync.</p>
       {error && <p role="alert" className="mt-6 border border-red-300 p-4 text-sm text-red-800">{error}</p>}
       {message && <p role="status" className="mt-6 border border-green-800/20 p-4 text-sm text-green-900">{message}</p>}
-      {result && <p className="mt-2 text-sm"><Link className="underline" href={`/studio/artworks/${result.artworkId}/edit`}>Open imported artwork</Link> · {result.createdPrintOptions} print options added · {result.unusableSupplierVariants} incomplete supplier variants retained in snapshot only</p>}
+      {result && <p className="mt-2 text-sm"><Link className="underline" href={`/studio/artworks/${result.artworkId}/edit`}>Open imported artwork</Link> · {result.createdPrintOptions} new print options · {result.updatedPrintOptions ?? 0} updated · {result.unusableSupplierVariants} incomplete variants skipped</p>}
       <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]">
         <section className="border border-black/10 p-5">
           <div className="flex items-center justify-between gap-4">
@@ -134,21 +148,30 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
               </div>)}
             </div>
             <div className="mt-8 border-t border-black/10 pt-7">
-              <p className="mb-3 text-sm font-medium">Import destination</p>
-              {selected.linkedArtworkId && <p className="mb-4 border border-amber-700/25 p-3 text-xs text-amber-800">Already imported. Re-importing refreshes the stored supplier snapshot; existing artwork retail prices are not changed.</p>}
-              <label className="mb-3 flex items-center gap-2 text-sm"><input type="radio" checked={mode === "create"} onChange={() => setMode("create")} /> Create an unpublished artwork</label>
-              <label className="mb-4 flex items-center gap-2 text-sm"><input type="radio" checked={mode === "link"} onChange={() => setMode("link")} /> Attach to an existing artwork</label>
-              {mode === "create" ? <select aria-label="Collection for imported artwork" className="w-full border border-black/20 bg-transparent p-3 text-sm" value={collectionId} onChange={e => setCollectionId(e.target.value)}>
-                <option value="">Choose website collection</option>
-                {collections.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-              </select> : <select aria-label="Existing artwork" className="w-full border border-black/20 bg-transparent p-3 text-sm" value={existingId} onChange={e => setExistingId(e.target.value)}>
-                <option value="">Choose existing artwork</option>
-                {artworks.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
-              </select>}
-              <label className="mt-5 block text-xs">Type IMPORT CREATIVEHUB DRAFT to authorize this local import</label>
-              <input className="mt-2 w-full border border-black/20 bg-transparent px-4 py-3 text-sm" value={confirmation} onChange={e=>setConfirmation(e.target.value)} placeholder="IMPORT CREATIVEHUB DRAFT" />
-              <button type="button" disabled={busy || confirmation !== "IMPORT CREATIVEHUB DRAFT" || (!selected.linkedArtworkId && (mode === "create" ? !collectionId : !existingId))} onClick={importDraft} className="mt-4 bg-black px-6 py-4 text-xs uppercase tracking-widest text-white disabled:opacity-40">{busy ? "Importing…" : "Import supplier product as draft"}</button>
-              <p className="mt-4 text-xs leading-6 text-black/50">Imports all metadata returned by Creativehub, including certificate settings and product-shot URLs, into a private supplier snapshot. The website preview uses a supplier image URL; it does not copy the full-resolution print master or certificate PDF into Supabase. Customer retail prices remain blank until you set them.</p>
+              {selected.linkedArtworkId ? <>
+                <p className="mb-3 text-sm font-medium">Already imported into LETION ART</p>
+                <p className="mb-4 text-sm text-black/60">Changed something in Creativehub? Sync it here. This refreshes prices, paper, frames, sizes and mockup URLs without duplicate prints or replacing your EUR retail prices.</p>
+                <button type="button" disabled={busy} onClick={() => void importDraft(true)}
+                  className="bg-black px-6 py-4 text-xs uppercase tracking-widest text-white disabled:opacity-40">
+                  {busy ? "Syncing…" : "Sync latest from Creativehub"}
+                </button>
+              </> : <>
+                <p className="mb-3 text-sm font-medium">Import to LETION ART</p>
+                <label className="mb-3 flex items-center gap-2 text-sm"><input type="radio" checked={mode === "link"} onChange={() => setMode("link")} /> Use an existing artwork in my gallery</label>
+                <label className="mb-4 flex items-center gap-2 text-sm"><input type="radio" checked={mode === "create"} onChange={() => setMode("create")} /> Create a new unpublished artwork</label>
+                {mode === "create" ? <select aria-label="Collection for imported artwork" className="w-full border border-black/20 bg-transparent p-3 text-sm" value={collectionId} onChange={e => setCollectionId(e.target.value)}>
+                  <option value="">Choose website collection</option>
+                  {collections.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select> : <select aria-label="Existing artwork" className="w-full border border-black/20 bg-transparent p-3 text-sm" value={existingId} onChange={e => setExistingId(e.target.value)}>
+                  <option value="">Choose existing artwork</option>
+                  {artworks.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+                </select>}
+                <p className="mt-3 text-xs leading-5 text-black/60">If you previously removed this artwork from Manage Prints, importing a replacement product will restore its print setup only when no customer orders depend on the old variants.</p>
+                <label className="mt-5 block text-xs">Type IMPORT CREATIVEHUB DRAFT to confirm</label>
+                <input className="mt-2 w-full border border-black/20 bg-transparent px-4 py-3 text-sm" value={confirmation} onChange={e=>setConfirmation(e.target.value)} placeholder="IMPORT CREATIVEHUB DRAFT" />
+                <button type="button" disabled={busy || confirmation !== "IMPORT CREATIVEHUB DRAFT" || (mode === "create" ? !collectionId : !existingId)} onClick={() => void importDraft(false)} className="mt-4 bg-black px-6 py-4 text-xs uppercase tracking-widest text-white disabled:opacity-40">{busy ? "Importing…" : "Import Creativehub product"}</button>
+              </>}
+              <p className="mt-4 text-xs leading-6 text-black/50">Supplier prices stay in GBP metadata; your retail EUR prices are never silently overwritten. No orders or supplier products are created.</p>
             </div>
           </>}
         </section>
