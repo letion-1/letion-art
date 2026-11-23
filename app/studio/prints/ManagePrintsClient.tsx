@@ -49,6 +49,23 @@ function status(variant: Variant): Filter {
   return "enabled";
 }
 
+function liveVariantCount(artwork: Artwork) {
+  return artwork.variants.filter((variant) =>
+    variant.active === true &&
+    variant.currency === "EUR" &&
+    variant.price !== null &&
+    Number(variant.price) > 0
+  ).length;
+}
+
+function shopReadiness(artwork: Artwork) {
+  const live = liveVariantCount(artwork);
+  if (!artwork.published) return "Not visible: artwork unpublished";
+  if (!artwork.prints_available) return "Not live: artwork print selling is off";
+  if (live === 0) return "Not live: no enabled print options with EUR prices";
+  return `Live: ${live} purchasable print option${live === 1 ? "" : "s"}`;
+}
+
 function price(variant: Variant) {
   if (variant.price === null) return "Price missing";
   try {
@@ -182,6 +199,9 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
                       <h3 className="truncate text-xl font-medium">{artwork.title}</h3>
                       <p className="mt-1 text-xs text-black/45">{artwork.variants.length} option(s) · {artwork.prints_available ? "Print selling enabled" : "Print selling off"} · {artwork.published ? "Artwork published" : "Artwork hidden"}</p>
                       <p className="mt-1 text-xs text-black/45">Creativehub: {artwork.sync?.state || "Not started"}{artwork.sync?.hasMaster ? " · Master recorded" : ""}</p>
+                      <p className={`mt-2 text-xs ${artwork.published && artwork.prints_available && liveVariantCount(artwork) > 0 ? "text-emerald-700" : "text-amber-800"}`}>
+                        Customer Shop: {shopReadiness(artwork)}
+                      </p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">

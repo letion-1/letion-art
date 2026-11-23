@@ -91,7 +91,10 @@ export default function PrintConfigurator({
           (
             variant
           ) =>
-            variant.active
+            variant.active &&
+            variant.currency === "EUR" &&
+            variant.price !== null &&
+            Number(variant.price) > 0
         ),
       [variants]
     );
@@ -297,9 +300,8 @@ export default function PrintConfigurator({
     return (
       <div className="border border-dashed border-black/15 p-8">
         <p className="text-sm leading-6 text-black/40">
-          Print options are
-          currently being
-          prepared.
+          Print editions for this artwork are not yet
+          available to purchase.
         </p>
       </div>
     );

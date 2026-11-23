@@ -21,6 +21,7 @@ type PrintVariant = {
     | null;
 
   sort_order: number;
+  active: boolean;
 };
 
 type ShopArtwork = {
@@ -87,7 +88,10 @@ function getLowestPrice(
   const priced =
     variants.filter(
       (variant) =>
-        variant.price !== null
+        variant.active === true &&
+        variant.currency === "EUR" &&
+        variant.price !== null &&
+        Number(variant.price) > 0
     );
 
   if (priced.length === 0) {
@@ -162,6 +166,7 @@ export default async function ShopPage() {
         name,
         price,
         currency,
+        active,
         sort_order
       )
     `)
@@ -199,9 +204,17 @@ export default async function ShopPage() {
     );
   }
 
+  // Never advertise an artwork as a purchasable print when all of its
+  // imported variants are still draft, disabled, or missing EUR pricing.
   const artworks =
-    (data ??
-      []) as unknown as ShopArtwork[];
+    ((data ?? []) as unknown as ShopArtwork[]).filter((artwork) =>
+      (artwork.print_variants ?? []).some((variant) =>
+        variant.active === true &&
+        variant.currency === "EUR" &&
+        variant.price !== null &&
+        Number(variant.price) > 0
+      )
+    );
 
   return (
     <main className="min-h-screen text-[#111111]">

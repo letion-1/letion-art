@@ -173,6 +173,14 @@ export default async function ShopArtworkPage({
       "active",
       true
     )
+    .eq(
+      "currency",
+      "EUR"
+    )
+    .gt(
+      "price",
+      0
+    )
     .order(
       "sort_order",
       {
