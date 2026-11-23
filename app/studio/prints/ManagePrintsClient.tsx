@@ -7,6 +7,7 @@ import ManagePrintsRemoveButton from "./ManagePrintsRemoveButton";
 import CreativehubProductPhotoManager from "./CreativehubProductPhotoManager";
 import CreativehubPricingReview from "./CreativehubPricingReview";
 import { useMemo, useState } from "react";
+import { printDimension, printText } from "@/lib/print-display-text";
 
 type Variant = {
   id: string;
@@ -184,7 +185,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
 
         <section className="mt-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-2xl tracking-tight">Print catalogue</h2>
+            <div><h2 className="text-2xl tracking-tight">Print catalogue</h2><p className="mt-2 text-xs text-black/50">Creativehub provides GBP retail prices; the Studio website price uses the currency shown for each saved variant, normally EUR.</p></div>
             <input className="w-full border border-black/15 bg-transparent px-4 py-3 text-sm outline-none focus:border-black sm:max-w-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search artwork, size, paper or SKU" aria-label="Search print options" />
           </div>
 
@@ -216,8 +217,8 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
                 <CreativehubPricingReview artworkId={artwork.id} />
                 {artwork.sync?.error && <p role="alert" className="border-b border-black/10 px-5 py-3 text-xs text-red-800">Sync needs review: {artwork.sync.error}</p>}
                 {showEmpty && <p className="p-5 text-sm text-black/45">No variants yet. Use <Link className="underline" href={`/studio/artworks/${artwork.id}/edit`}>Edit options</Link> to add your print sizes.</p>}
-                {matching.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-black/10 text-[10px] uppercase tracking-widest text-black/40"><th className="px-5 py-4 font-medium">Print / size</th><th className="px-5 py-4 font-medium">Paper / frame</th><th className="px-5 py-4 font-medium">Store price</th><th className="px-5 py-4 font-medium">Creativehub</th><th className="px-5 py-4 font-medium">Status</th></tr></thead>
-                  <tbody>{matching.map((v) => <tr key={v.id} className="border-b border-black/5 last:border-0"><td className="px-5 py-4"><div className="font-medium">{v.name}</div><div className="mt-1 text-xs text-black/40">{v.size_label || (v.width_mm && v.height_mm ? `${v.width_mm / 10} × ${v.height_mm / 10} cm` : "Size not set")}</div></td><td className="px-5 py-4 text-black/60">{v.paper || "Paper not set"}<div className="mt-1 text-xs">{v.framed ? `Framed · ${v.frame_style || "Style missing"}` : "Unframed"}</div></td><td className="px-5 py-4 tabular-nums">{price(v)}</td><td className="px-5 py-4"><div className="max-w-[170px] truncate text-xs">{v.creativehub_sku || "No SKU"}</div>{v.creativehub_product_id && <div className="mt-1 text-[10px] text-black/40">Product mapped locally</div>}</td><td className="px-5 py-4"><span className={`inline-flex rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-wider ${pill(status(v))}`}>{status(v) === "unlinked" ? "Not linked" : status(v) === "review" ? "Review first" : "Enabled"}</span></td></tr>)}</tbody>
+                {matching.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-black/10 text-[10px] uppercase tracking-widest text-black/40"><th className="px-5 py-4 font-medium">Print / size</th><th className="px-5 py-4 font-medium">Paper / frame</th><th className="px-5 py-4 font-medium">Website retail price</th><th className="px-5 py-4 font-medium">Creativehub</th><th className="px-5 py-4 font-medium">Status</th></tr></thead>
+                  <tbody>{matching.map((v) => <tr key={v.id} className="border-b border-black/5 last:border-0"><td className="px-5 py-4"><div className="font-medium">{printText(v.name)}</div><div className="mt-1 text-xs text-black/40">{printDimension(v.width_mm, v.height_mm) || printText(v.size_label) || "Size not set"}</div></td><td className="px-5 py-4 text-black/60">{printText(v.paper) || "Paper not set"}<div className="mt-1 text-xs">{v.framed ? `Framed · ${printText(v.frame_style) || "Style missing"}` : "Unframed"}</div></td><td className="px-5 py-4 tabular-nums">{price(v)}</td><td className="px-5 py-4"><div className="max-w-[170px] truncate text-xs">{v.creativehub_sku || "No SKU"}</div>{v.creativehub_product_id && <div className="mt-1 text-[10px] text-black/40">Product mapped locally</div>}</td><td className="px-5 py-4"><span className={`inline-flex rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-wider ${pill(status(v))}`}>{status(v) === "unlinked" ? "Not linked" : status(v) === "review" ? "Review first" : "Enabled"}</span></td></tr>)}</tbody>
                 </table></div>}
               </article>
             ))}

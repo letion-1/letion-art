@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import PrintConfigurator, {
   type ShopPrintVariant,
 } from "./PrintConfigurator";
+import PrintProductMedia, { PrintProductMediaProvider } from "./PrintProductMedia";
 
 type CollectionInfo = {
   slug: string;
@@ -240,14 +241,14 @@ export default async function ShopArtworkPage({
       };
     });
   const photoResult = await admin.from("studio_creativehub_product_photos")
-    .select("photo_key,image_url,caption")
+    .select("photo_key,image_url,caption,supplier_variant_id")
     .eq("artwork_id", artwork.id).eq("is_public", true)
     .order("sort_order", { ascending: true }).limit(50);
   const productPhotos = (photoResult.data || []).filter(p =>
     typeof p.image_url === "string" && /^https:\/\//i.test(p.image_url));
 
   return (
-    <main className="min-h-screen text-[#111111]">
+    <main className="relative isolate z-10 min-h-screen bg-[#f5f3ee] text-[#111111]">
       {/* HEADER */}
 
       <header className="px-6 py-7 md:px-10">
@@ -271,30 +272,11 @@ export default async function ShopArtworkPage({
       {/* PRODUCT */}
 
       <section className="border-t border-black/10 px-6 pb-28 pt-12 md:px-10 md:pb-40 md:pt-20">
+        <PrintProductMediaProvider variants={variants}>
         <div className="mx-auto grid max-w-[1600px] gap-14 lg:grid-cols-[1.15fr_0.85fr] lg:gap-24">
-          {/* ARTWORK */}
-
-          <div>
-            <div className="flex min-h-[65vh] items-center justify-center bg-black/[0.025] p-6 md:p-10">
-              {artwork.image_url ? (
-                <img
-                  src={
-                    artwork.image_url
-                  }
-                  alt={
-                    artwork.title
-                  }
-                  className="max-h-[82vh] max-w-full object-contain"
-                />
-              ) : (
-                <div className="flex aspect-[4/5] w-full items-center justify-center">
-                  <span className="text-xs uppercase tracking-[0.2em] text-black/25">
-                    Artwork
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+          {/* SINGLE MAIN PHOTO: FOLLOWS THE SELECTED SIZE + FRAME */}
+          <PrintProductMedia title={artwork.title} artworkImage={artwork.image_url}
+            variants={variants} photos={productPhotos} />
 
           {/* PRODUCT INFORMATION */}
 
@@ -406,6 +388,7 @@ export default async function ShopArtworkPage({
             </div>
           </div>
         </div>
+        </PrintProductMediaProvider>
       </section>
 
       {/* PRINT INFORMATION */}
