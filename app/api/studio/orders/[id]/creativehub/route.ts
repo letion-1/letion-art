@@ -112,6 +112,14 @@ async function requireAdmin() {
 
   if (error || !user) return false;
 
+  // Separate second-factor check for the financially sensitive supplier API.
+  // Do not turn on enforcement until MFA enrollment has been tested.
+  if (process.env.STUDIO_REQUIRE_MFA === "true") {
+    const { data: assurance, error: assuranceError } =
+      await auth.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (assuranceError || assurance?.currentLevel !== "aal2") return false;
+  }
+
   const db = createAdminClient();
 
   const { data: admin, error: adminError } = await db
