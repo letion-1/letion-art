@@ -83,6 +83,20 @@ export default function StudioMfaSetup() {
     } finally { setBusy(false); }
   }
 
+  async function signOutOfStudio() {
+    setBusy(true);
+    setMessage("Signing out of Studio...");
+    try {
+      // End only the current browser session, not all your devices.
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) throw error;
+      window.location.replace("/studio/login");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to sign out. Please retry.");
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="mt-7 space-y-5" aria-label="Studio two-factor authentication">
       {ready ? (
@@ -124,6 +138,14 @@ export default function StudioMfaSetup() {
         </>
       )}
       <p className="text-sm leading-6 text-black/65" role="status">{message}</p>
+      <button
+        type="button"
+        onClick={signOutOfStudio}
+        disabled={busy}
+        className="mt-3 inline-flex items-center justify-center rounded-sm border border-black/20 px-5 py-3 text-sm font-semibold text-black hover:bg-black/5 disabled:opacity-40"
+      >
+        Sign out of Studio
+      </button>
       <p className="text-xs leading-5 text-black/50">
         If you lose access to your authenticator app, account recovery requires a verified administrator.
         Never disable database security to regain access.
