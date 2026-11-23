@@ -32,6 +32,7 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [availableCount, setAvailableCount] = useState<number | null>(null);
 
   async function refresh(offset = 0) {
     setBusy(true); setError("");
@@ -47,7 +48,7 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
   useEffect(() => { void refresh(); }, []);
 
   async function inspect(id: string) {
-    setBusy(true); setError(""); setMessage(""); setResult(null);
+    setBusy(true); setError(""); setMessage(""); setResult(null); setAvailableCount(null);
     try {
       const response = await fetch(`/api/studio/creativehub/drafts?productId=${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store" });
       const body = await response.json();
@@ -83,12 +84,32 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
       if (!response.ok) throw new Error(body.error || `Import failed (HTTP ${response.status})`);
       setResult(body.result as ImportResult);
       if (body.product) setSelected(body.product as ProductDetail);
-      setMessage(syncExisting
-        ? `Synced latest Creativehub details: ${Number(body.result?.updatedPrintOptions ?? 0)} options updated, ${Number(body.result?.createdPrintOptions ?? 0)} new options. Existing EUR prices preserved.${body.photoWarning ? " " + body.photoWarning : ""}`
-        : `Imported successfully. Existing artwork images and EUR prices were preserved. New print options remain disabled.${body.photoWarning ? " " + body.photoWarning : ""}`);
+      const pricing = body.priceSync as { pricesFilled?: number; shopOptions?: number } | null;
+      setMessage((syncExisting ? "Creativehub details refreshed." : "Creativehub product imported.") +
+        ` ${Number(body.result?.createdPrintOptions ?? 0)} new and ${Number(body.result?.updatedPrintOptions ?? 0)} updated print variants.` +
+        ` ${pricing ? `${Number(pricing.pricesFilled ?? 0)} missing EUR prices filled. ${Number(pricing.shopOptions ?? 0)} currently sale-ready options.` : "EUR pricing requires attention."}` +
+        (body.photoWarning ? ` ${body.photoWarning}` : "") +
+        (body.priceWarning ? ` ${body.priceWarning}` : ""));
       setConfirmation("");
       await refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Import failed."); }
+    finally { setBusy(false); }
+  }
+
+  async function makeAvailable() {
+    if (!selected?.linkedArtworkId || busy) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/studio/creativehub/drafts", {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "enableShop", productId: selected.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setAvailableCount(Number(body.activeOptions ?? 0));
+      setMessage(`${Number(body.activeOptions ?? 0)} print variants are available in the customer Shop. Your original gallery artwork and Creativehub products are unchanged.`);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not enable print availability."); }
     finally { setBusy(false); }
   }
 
@@ -97,7 +118,7 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
       <Link href="/studio/prints" className="text-xs uppercase tracking-widest text-black/50 hover:text-black">← Manage Prints</Link>
       <p className="mt-10 text-[10px] uppercase tracking-[0.2em] text-black/45">LETION / STUDIO · CREATIVEHUB</p>
       <h1 className="mt-3 text-4xl tracking-[-0.05em] md:text-6xl">Import & sync Creativehub</h1>
-      <p className="mt-5 max-w-3xl text-sm leading-7 text-black/55">Import a Creativehub product once, then sync it whenever you change its prices, frames, paper, sizes or mockups in Creativehub. Existing website EUR prices and artwork publication settings are preserved. No supplier products or orders are created.</p>
+      <p className="mt-5 max-w-3xl text-sm leading-7 text-black/55">Import once, then Sync whenever you edit the product in Creativehub. Studio brings across the real framed/unframed variants, specifications, images and GBP retail prices, preparing missing EUR prices for your Shop. When you mark a published artwork Available as Print, its priced variants appear to customers. Your existing EUR prices stay unchanged.</p>
       <p className="mt-2 max-w-3xl text-xs leading-6 text-amber-800">Creativehub does not reliably identify draft status. Newly created website artworks are unpublished and print sales start disabled. Existing artwork visibility is never changed by a sync.</p>
       {error && <p role="alert" className="mt-6 border border-red-300 p-4 text-sm text-red-800">{error}</p>}
       {message && <p role="status" className="mt-6 border border-green-800/20 p-4 text-sm text-green-900">{message}</p>}
@@ -155,6 +176,12 @@ export default function DraftImporter({ artworks, collections }: { artworks: Opt
                   className="bg-black px-6 py-4 text-xs uppercase tracking-widest text-white disabled:opacity-40">
                   {busy ? "Syncing…" : "Sync latest from Creativehub"}
                 </button>
+                <button type="button" disabled={busy} onClick={() => void makeAvailable()}
+                  className="ml-2 mt-3 border border-black px-6 py-4 text-xs uppercase tracking-widest hover:bg-black hover:text-white disabled:opacity-40">
+                  {busy ? "Working…" : "Available as Print · Show in Shop"}
+                </button>
+                {availableCount === 0 && <p className="mt-3 text-xs text-amber-800">No EUR-priced variants are available yet. Sync again and check the supplier GBP prices or FX warning before trying to sell.</p>}
+                <p className="mt-3 text-xs text-black/50">This does not publish an unpublished artwork. If necessary, publish it first in Artwork Editor. No Creativehub production order will be submitted.</p>
               </> : <>
                 <p className="mb-3 text-sm font-medium">Import to LETION ART</p>
                 <label className="mb-3 flex items-center gap-2 text-sm"><input type="radio" checked={mode === "link"} onChange={() => setMode("link")} /> Use an existing artwork in my gallery</label>

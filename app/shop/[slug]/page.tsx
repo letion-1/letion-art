@@ -7,6 +7,7 @@ import {
 import {
   createClient,
 } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 import PrintConfigurator, {
   type ShopPrintVariant,
@@ -163,7 +164,9 @@ export default async function ShopArtworkPage({
       frame_style,
       framing_details,
       active,
-      sort_order
+      sort_order,
+      creativehub_variant_id,
+      creativehub_sku
     `)
     .eq(
       "artwork_id",
@@ -210,9 +213,38 @@ export default async function ShopArtworkPage({
     );
   }
 
-  const variants =
-    (variantData ??
-      []) as ShopPrintVariant[];
+  // The private supplier metadata stays server-side. Expose only details
+  // associated with this published and print-available artwork.
+  const admin = createAdminClient();
+  const supplier = await admin.from("creativehub_draft_imports")
+    .select("product_id,variants_json")
+    .eq("linked_artwork_id", artwork.id).maybeSingle();
+  const supplierVariants = new Map<string, Record<string, unknown>>();
+  if (!supplier.error && Array.isArray(supplier.data?.variants_json)) {
+    for (const source of supplier.data.variants_json) {
+      if (source && typeof source === "object" && !Array.isArray(source)) {
+        const row = source as Record<string, unknown>;
+        if (typeof row.id === "string") supplierVariants.set(row.id, row);
+      }
+    }
+  }
+  const variants = ((variantData ?? []) as ShopPrintVariant[])
+    .filter(v => v.active && v.currency === "EUR" && Number(v.price) > 0)
+    .map(v => {
+      const source = supplierVariants.get(String(v.creativehub_variant_id ?? ""));
+      return { ...v,
+        edition_size: typeof source?.edition_size === "number" ? source.edition_size : null,
+        border: typeof source?.border === "string" ? source.border : null,
+        finish: v.finish || (typeof source?.finish === "string" ? source.finish : null),
+        framing_details: v.framing_details || (typeof source?.frame_type === "string" ? source.frame_type : null),
+      };
+    });
+  const photoResult = await admin.from("studio_creativehub_product_photos")
+    .select("photo_key,image_url,caption")
+    .eq("artwork_id", artwork.id).eq("is_public", true)
+    .order("sort_order", { ascending: true }).limit(50);
+  const productPhotos = (photoResult.data || []).filter(p =>
+    typeof p.image_url === "string" && /^https:\/\//i.test(p.image_url));
 
   return (
     <main className="min-h-screen text-[#111111]">
@@ -369,6 +401,7 @@ export default async function ShopArtworkPage({
                 variants={
                   variants
                 }
+                photos={productPhotos}
               />
             </div>
           </div>

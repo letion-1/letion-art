@@ -162,6 +162,19 @@ export async function POST(request: Request) {
   try {
     const db = await adminDb(request);
     const input = rec(await request.json());
+    if (input.action === "enableShop") {
+      const id = str(input.productId);
+      if (!UUID.test(id)) throw new ErrorReply("Choose a Creativehub product.");
+      const result = await db.rpc("studio_make_imported_prints_available", {
+        p_product_id: id,
+      });
+      if (result.error) throw new ErrorReply(result.error.message, 409);
+      const outcome = rec(result.data);
+      return NextResponse.json({ success: true,
+        artworkId: str(outcome.artworkId), activeOptions: Number(outcome.activeOptions) || 0,
+        note: "Shop print availability updated. No Creativehub production order submitted." },
+        { headers: { "Cache-Control": "private, no-store" } });
+    }
     if (input.confirmation !== "IMPORT CREATIVEHUB DRAFT") throw new ErrorReply("Type the exact import confirmation.");
     const productId = str(input.productId);
     if (!UUID.test(productId)) throw new ErrorReply("Select a Creativehub product.");
@@ -180,9 +193,37 @@ export async function POST(request: Request) {
     const photoWarning = UUID.test(artworkId)
       ? await syncDisplayPhotos(db, artworkId, productId, product, variants)
       : "No linked artwork ID was returned for product photo refresh.";
-    return NextResponse.json({ success: true, result: result.data, photoWarning,
+    // The supplier provides GBP retail values. Bring missing website prices
+    // into EUR using the same Frankfurter reference source as Studio's FX tool.
+    // Never overwrite an existing EUR price, and never publish on import alone.
+    let priceSync: Rec | null = null;
+    let priceWarning: string | null = null;
+    if (UUID.test(artworkId)) {
+      try {
+        const fx = await fetch("https://api.frankfurter.dev/v2/rate/gbp/eur", {
+          headers: { Accept: "application/json" }, cache: "no-store",
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!fx.ok) throw new Error(`Exchange-rate source returned HTTP ${fx.status}`);
+        const reference: unknown = await fx.json();
+        const item = rec(reference);
+        const rate = Number(item.rate);
+        if (!Number.isFinite(rate) || rate < 0.5 || rate > 3) throw new Error("Invalid GBP to EUR rate");
+        const day = str(item.date);
+        const converted = await db.rpc("studio_prepare_imported_print_prices", {
+          p_artwork_id: artworkId, p_product_id: productId, p_rate: rate,
+          p_reference_date: /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
+        });
+        if (converted.error) throw new Error(converted.error.message);
+        priceSync = rec(converted.data);
+      } catch (err) {
+        priceWarning = "Creativehub supplier details synced, but EUR pricing could not be prepared: " +
+          (err instanceof Error ? err.message : "FX lookup failed") + ". Retry Sync when the rate service is available.";
+      }
+    }
+    return NextResponse.json({ success: true, result: result.data, photoWarning, priceSync, priceWarning,
       product: present(product, variants, artworkId),
-      note: "Creativehub data synchronized. Existing website EUR prices and artwork files preserved. New variants remain inactive." },
+      note: "Creativehub supplier details synchronized. Existing EUR prices preserved; supplier display photos refreshed. Website selling follows Available as Print." },
       { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }

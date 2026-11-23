@@ -53,7 +53,13 @@ export type ShopPrintVariant = {
     | null;
 
   active: boolean;
+  creativehub_variant_id?: string | null;
+  creativehub_sku?: string | null;
+  edition_size?: number | null;
+  border?: string | null;
 };
+
+type ProductPhoto = { photo_key: string; image_url: string; caption: string };
 
 type ArtworkForCart = {
   id: string;
@@ -68,12 +74,14 @@ type ArtworkForCart = {
 export default function PrintConfigurator({
   artwork,
   variants,
+  photos = [],
 }: {
   artwork:
     ArtworkForCart;
 
   variants:
     ShopPrintVariant[];
+  photos?: ProductPhoto[];
 }) {
   const {
     addItem,
@@ -206,6 +214,13 @@ export default function PrintConfigurator({
       variantsForSize,
     ]);
 
+  // Show the actual Creativehub mockup for the selected SKU/frame,
+  // rather than always showing the generic artwork image.
+  const variantPhoto = selectedVariant?.creativehub_variant_id
+    ? photos.find(photo => photo.photo_key === `variant:${selectedVariant.creativehub_variant_id}`)
+    : null;
+  const selectedPhoto = variantPhoto || photos.find(photo => photo.photo_key === "artwork-preview") || photos[0];
+
   function chooseSize(
     size: string
   ) {
@@ -309,6 +324,20 @@ export default function PrintConfigurator({
 
   return (
     <div>
+      {/* CREATIVEHUB PRODUCT PHOTO, MATCHED TO THE SELECTED VARIANT */}
+      {selectedPhoto && <div className="mb-8 border border-black/10 bg-black/[0.025] p-4">
+        <img src={selectedPhoto.image_url}
+          alt={selectedPhoto.caption || "Creativehub print presentation"}
+          className="mx-auto max-h-[460px] w-full object-contain" loading="lazy" />
+        <p className="mt-3 text-xs text-black/50">{selectedPhoto.caption || "Product photograph"}</p>
+        {photos.length > 1 && <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+          {photos.map(photo => <img key={photo.photo_key} src={photo.image_url}
+            alt={photo.caption || "Product option"} title={photo.caption}
+            className={`h-20 w-16 shrink-0 border object-contain ${selectedPhoto.photo_key === photo.photo_key ? "border-black" : "border-black/10"}`}
+            loading="lazy" />)}
+        </div>}
+      </div>}
+
       {/* SIZE */}
 
       {sizes.length >
@@ -412,7 +441,7 @@ export default function PrintConfigurator({
                       <p className="font-medium">
                         {variant.framed
                           ? variant.frame_style ||
-                            "Framed"
+                            `Framed · ${variant.creativehub_sku || "Supplier option"}`
                           : "Print only"}
                       </p>
 
@@ -464,6 +493,15 @@ export default function PrintConfigurator({
               />
             )}
 
+            {selectedVariant.creativehub_sku && (
+              <DetailRow label="Supplier option" value={selectedVariant.creativehub_sku} />
+            )}
+            {selectedVariant.edition_size != null && (
+              <DetailRow label="Edition size" value={String(selectedVariant.edition_size)} />
+            )}
+            {selectedVariant.border && (
+              <DetailRow label="Border" value={selectedVariant.border} />
+            )}
             {selectedVariant.finish && (
               <DetailRow
                 label="Print"
