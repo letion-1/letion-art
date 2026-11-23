@@ -149,7 +149,6 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
             <div className="flex flex-wrap gap-2">
               <Link href="/studio/artworks" className="border border-black px-5 py-3 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white">Artworks</Link>
               <Link href="/studio/prints/import" className="border border-black px-5 py-3 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white">Import Creativehub drafts</Link>
-              <Link href="/studio/prints/removed" className="border border-black/25 px-5 py-3 text-[10px] uppercase tracking-wider hover:border-black">Removed print listings</Link>
               <Link href="/studio/creativehub/quotes" className="bg-black px-5 py-3 text-[10px] uppercase tracking-widest text-white hover:opacity-75">Supplier quotes</Link>
             </div>
           </div>
