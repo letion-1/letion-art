@@ -5,6 +5,7 @@ import CreativehubMappingAudit from "./CreativehubMappingAudit";
 import CreativehubSupplierPlanner from "./CreativehubSupplierPlanner";
 import ManagePrintsRemoveButton from "./ManagePrintsRemoveButton";
 import CreativehubProductPhotoManager from "./CreativehubProductPhotoManager";
+import CreativehubPricingReview from "./CreativehubPricingReview";
 import { useMemo, useState } from "react";
 
 type Variant = {
@@ -193,6 +194,7 @@ export default function ManagePrintsClient({ artworks, truncated }: { artworks: 
                 <CreativehubMappingAudit artworkId={artwork.id} />
                 <CreativehubSupplierPlanner artworkId={artwork.id} />
                 <CreativehubProductPhotoManager artworkId={artwork.id} />
+                <CreativehubPricingReview artworkId={artwork.id} />
                 {artwork.sync?.error && <p role="alert" className="border-b border-black/10 px-5 py-3 text-xs text-red-800">Sync needs review: {artwork.sync.error}</p>}
                 {showEmpty && <p className="p-5 text-sm text-black/45">No variants yet. Use <Link className="underline" href={`/studio/artworks/${artwork.id}/edit`}>Edit options</Link> to add your print sizes.</p>}
                 {matching.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-black/10 text-[10px] uppercase tracking-widest text-black/40"><th className="px-5 py-4 font-medium">Print / size</th><th className="px-5 py-4 font-medium">Paper / frame</th><th className="px-5 py-4 font-medium">Store price</th><th className="px-5 py-4 font-medium">Creativehub</th><th className="px-5 py-4 font-medium">Status</th></tr></thead>
