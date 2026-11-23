@@ -1,5 +1,5 @@
 
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { stripe } from "@/lib/stripe";
@@ -53,34 +53,29 @@ export async function POST(request: Request) {
     type: event.type,
   });
 
-  // Acknowledge promptly. Processing runs after the response.
-  after(async () => {
-    try {
-      switch (event.type) {
-        case "checkout.session.completed":
-        case "checkout.session.async_payment_succeeded":
-          await handlePaidSession(
-            event.data.object as Stripe.Checkout.Session
-          );
-          break;
-
-        case "checkout.session.async_payment_failed":
-          await handleFailedSession(
-            event.data.object as Stripe.Checkout.Session
-          );
-          break;
-
-        default:
-          break;
-      }
-    } catch (error) {
-      console.error("STRIPE BACKGROUND PROCESSING ERROR:", {
-        eventId: event.id,
-        eventType: event.type,
-        error,
-      });
+  // Persist the paid order before acknowledging this event. If the
+  // database operation fails, return 500 so Stripe can retry delivery.
+  // The handler uses a conditional status update for idempotency.
+  try {
+    switch (event.type) {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded":
+        await handlePaidSession(event.data.object as Stripe.Checkout.Session);
+        break;
+      case "checkout.session.async_payment_failed":
+        await handleFailedSession(event.data.object as Stripe.Checkout.Session);
+        break;
+      default:
+        break;
     }
-  });
+  } catch (error) {
+    console.error("STRIPE WEBHOOK PROCESSING FAILED:", {
+      eventId: event.id,
+      eventType: event.type,
+      error,
+    });
+    return NextResponse.json({ error: "Payment event processing failed." }, { status: 500 });
+  }
 
   return NextResponse.json({ received: true });
 }

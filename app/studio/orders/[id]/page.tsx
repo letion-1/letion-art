@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createHmac } from "node:crypto";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import VerifyStripePaymentButton from "./VerifyStripePaymentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -273,6 +274,9 @@ export default async function StudioOrderDetailPage({ params }: Props) {
                   mono
                 />
               </div>
+                          {(["pending", "payment_failed"].includes(order.status) && order.stripe_checkout_session_id) ? (
+                <VerifyStripePaymentButton orderId={order.id} />
+              ) : null}
             </Panel>
           </div>
 
