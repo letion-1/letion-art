@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -43,6 +44,14 @@ async function existing(db:ReturnType<typeof createAdminClient>,id:string){
   return result.data??[];
 }
 export async function GET(request:Request){
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try{const db=await authorize(request);const id=new URL(request.url).searchParams.get("artworkId")||"";
     if(!UUID.test(id))return reply("Invalid artwork ID",400);
     const product=await findProduct(db,id);const photos=await existing(db,id);
@@ -50,6 +59,14 @@ export async function GET(request:Request){
   }catch(e){return reply(e instanceof Error?e.message:"Photos unavailable",403);}
 }
 export async function POST(request:Request){
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try{const db=await authorize(request);const body=rec(await request.json());const artworkId=str(body.artworkId);
     if(!UUID.test(artworkId))return reply("Invalid artwork ID",400);
     const product=await findProduct(db,artworkId);

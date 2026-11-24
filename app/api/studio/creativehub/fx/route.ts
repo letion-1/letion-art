@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,6 +35,14 @@ async function safeJson(
 export async function GET(
   request: Request
 ) {
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     /*
      * Admin authentication

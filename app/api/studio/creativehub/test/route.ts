@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -67,6 +68,14 @@ function previewVariant(value: unknown) {
 }
 
 export async function GET() {
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     // ----------------------------------
     // 1. Authenticate the Studio user

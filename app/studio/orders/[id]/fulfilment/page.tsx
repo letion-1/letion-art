@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -16,6 +17,13 @@ type PageProps = {
 export default async function FulfilmentPage({
   params,
 }: PageProps) {
+  // Reject AAL1 before reading private customer and fulfilment data via service_role.
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    if (__letionMfa.status === 401) redirect("/studio/login");
+    notFound();
+  }
+
   const { id } = await params;
 
   const supabase = await createClient();

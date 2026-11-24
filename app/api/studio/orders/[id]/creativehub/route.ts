@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -255,6 +256,13 @@ async function storeProviderOrder(
 }
 
 export async function POST(request: Request, context: Context) {
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   try {
     if (!(await requireAdmin())) {
       return NextResponse.json(

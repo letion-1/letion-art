@@ -1,3 +1,4 @@
+import { requireStudioMfa } from "@/lib/studio/requireStudioMfa";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -100,6 +101,14 @@ function replyError(error: unknown) {
     { status: error instanceof SafeError ? error.status : 502, headers: { "Cache-Control": "private, no-store" } });
 }
 export async function GET(request: Request) {
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     const db = await authorise(request);
     const id = new URL(request.url).searchParams.get("artworkId") || "";
@@ -118,6 +127,14 @@ export async function GET(request: Request) {
   } catch (error) { return replyError(error); }
 }
 export async function POST(request: Request) {
+  const __letionMfa = await requireStudioMfa();
+  if (!__letionMfa.ok) {
+    return NextResponse.json(
+      { error: __letionMfa.error },
+      { status: __letionMfa.status, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     const db = await authorise(request);
     const body = obj(await request.json());
